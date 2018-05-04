@@ -22,7 +22,7 @@ Windows Install Pack (perl included):
 
   RAR: https://factorialcoin.nl/download/FCC_Install_Windows_0101.rar
 
-  RGZ: https://factorialcoin.nl/download/FCC_Install_Windows_0101.tar.gz
+  TGZ: https://factorialcoin.nl/download/FCC_Install_Windows_0101.tar.gz
 
   ZIP: https://factorialcoin.nl/download/FCC_Install_Windows_0101.zip
 
