@@ -7,6 +7,6 @@ You can earn FCC by mining it or running a node in which case you will get part 
 
 The file strcuture should be kinda self-explanatory.
 
-May the FCC tkae you down the rabbithole, say hello to Alice from me!
+May the FCC take you down the rabbithole, say hello to Alice from me!
 
 Chaosje.
