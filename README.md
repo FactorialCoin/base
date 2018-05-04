@@ -8,21 +8,25 @@ You can earn FCC by mining it or running a node in which case you will get part 
 Download Perl & FCC Install:
 
 Full Install Pack All OS's (perl included):
+
   https://factorialcoin.nl/download/FCC_Install_WinLinMac_0101.rar
   https://factorialcoin.nl/download/FCC_Install_WinLinMac_0101.tar.gz
   https://factorialcoin.nl/download/FCC_Install_WinLinMac_0101.zip
 
 Windows Install Pack (perl included):
+
   https://factorialcoin.nl/download/FCC_Install_Windows_0101.rar
   https://factorialcoin.nl/download/FCC_Install_Windows_0101.tar.gz
   https://factorialcoin.nl/download/FCC_Install_Windows_0101.zip
 
 Linux Install Pack (perl included):
+
   https://factorialcoin.nl/download/FCC_Install_Linux_0101.rar
   https://factorialcoin.nl/download/FCC_Install_Linux_0101.tar.gz
   https://factorialcoin.nl/download/FCC_Install_Linux_0101.zip
 
 Macintosh Install Pack (perl included):
+
   https://factorialcoin.nl/download/FCC_Install_Macintosh_0101.rar
   https://factorialcoin.nl/download/FCC_Install_Macintosh_0101.tar.gz
   https://factorialcoin.nl/download/FCC_Install_Macintosh_0101.zip
