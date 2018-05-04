@@ -18,9 +18,9 @@ use gerr qw(error);
 
 ###### Use this to force connecting to a friendly node
 
-my $FORCENODE;
-#my $FORCENODE="141.138.137.123:7050";
-#my $FORCENODE="192.168.1.103:7050";
+#my $FORCENODE;
+#my $FORCENODE="37.97.233.157:7050";
+my $FORCENODE="141.138.137.123:7050";
 
 ######################################################
 
