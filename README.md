@@ -45,7 +45,7 @@ Macintosh Install Pack (perl included):
   ZIP: https://factorialcoin.nl/download/FCC_Install_Macintosh_0101.zip
 
 
-Gitbug Install:
+GitHub Install:
 
 put perl/site/lib into your .../perl/site/lib directory.
 
