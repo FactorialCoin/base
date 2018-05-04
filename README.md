@@ -5,31 +5,44 @@ FCC is completely made in Perl. It will run on almost any O/S.
 It allows to participate in one of the fastest and most secure Crypto Currencies on planet earth.
 You can earn FCC by mining it or running a node in which case you will get part of the fees payed over transactions.
 
+
 Download Perl & FCC Install:
+
 
 Full Install Pack All OS's (perl included):
 
-  https://factorialcoin.nl/download/FCC_Install_WinLinMac_0101.rar
-  https://factorialcoin.nl/download/FCC_Install_WinLinMac_0101.tar.gz
-  https://factorialcoin.nl/download/FCC_Install_WinLinMac_0101.zip
+  RAR: https://factorialcoin.nl/download/FCC_Install_WinLinMac_0101.rar
+
+  TGZ: https://factorialcoin.nl/download/FCC_Install_WinLinMac_0101.tar.gz
+
+  ZIP: https://factorialcoin.nl/download/FCC_Install_WinLinMac_0101.zip
+
 
 Windows Install Pack (perl included):
 
-  https://factorialcoin.nl/download/FCC_Install_Windows_0101.rar
-  https://factorialcoin.nl/download/FCC_Install_Windows_0101.tar.gz
-  https://factorialcoin.nl/download/FCC_Install_Windows_0101.zip
+  RAR: https://factorialcoin.nl/download/FCC_Install_Windows_0101.rar
+
+  RGZ: https://factorialcoin.nl/download/FCC_Install_Windows_0101.tar.gz
+
+  ZIP: https://factorialcoin.nl/download/FCC_Install_Windows_0101.zip
+
 
 Linux Install Pack (perl included):
 
-  https://factorialcoin.nl/download/FCC_Install_Linux_0101.rar
-  https://factorialcoin.nl/download/FCC_Install_Linux_0101.tar.gz
-  https://factorialcoin.nl/download/FCC_Install_Linux_0101.zip
+  RAR: https://factorialcoin.nl/download/FCC_Install_Linux_0101.rar
+
+  TGZ: https://factorialcoin.nl/download/FCC_Install_Linux_0101.tar.gz
+
+  ZIP: https://factorialcoin.nl/download/FCC_Install_Linux_0101.zip
+
 
 Macintosh Install Pack (perl included):
 
-  https://factorialcoin.nl/download/FCC_Install_Macintosh_0101.rar
-  https://factorialcoin.nl/download/FCC_Install_Macintosh_0101.tar.gz
-  https://factorialcoin.nl/download/FCC_Install_Macintosh_0101.zip
+  RAR: https://factorialcoin.nl/download/FCC_Install_Macintosh_0101.rar
+
+  TGZ: https://factorialcoin.nl/download/FCC_Install_Macintosh_0101.tar.gz
+
+  ZIP: https://factorialcoin.nl/download/FCC_Install_Macintosh_0101.zip
 
 
 Gitbug Install:
