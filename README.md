@@ -9,8 +9,9 @@ Install:
 
 put perl/site/lib into your .../perl/site/lib directory.
 
-Directory wallet containce the wallet start scripts for all Os's.
-Directory node containce the node start scripts for all Os's.
+Directory FCC/Wallet containce the wallet start and run scripts for all Os's.
+
+Directory FCC/Node containce the node start and run scripts for all Os's.
 
 May the FCC take you down the rabbithole, say hello to Alice from me!
 
