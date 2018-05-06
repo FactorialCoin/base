@@ -1,9 +1,8 @@
 FCC Wallet script
 Development Version
 
-Copy all files to the same wallet directory as the normal version.
+Copy all files into the same wallet directory as the normal version. (don't forget the extra image file)
 
-The Start_Wallet scripts can be copied to others in where you change the wallet port.
-This way you can start more than one miner, while you use the same FCC wallet file, for example. 
+The Start_Wallet_[PORT]_[OS] start-scripts can be copied to other start-file names, in where you change the internal wallet port you start your wallet with. This way you can start more than one wallet-miner, while you use the same wallet.fcc file. 
 
-The trusted.nodes file is for now a fix to get your wallet started beyond the nodelist fails what seems to occure at more places. We are still fixing that issue. 
+The trusted.nodes file is for now a fix to get your wallet started beyond the nodelist request fails what seems to occure at some places. We are still fixing this particulare issue.
