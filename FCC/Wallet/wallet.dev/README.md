@@ -1,5 +1,5 @@
 FCC Wallet script
--~- Development Version -~-
+-- Development Version --
 
 Copy all files into the same wallet directory as the normal version. (don't forget the extra image file)
 
