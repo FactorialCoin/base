@@ -399,7 +399,9 @@
   	var idx=document.getElementById('adrbook').selectedIndex;
   	var list=document.getElementById('adrbook').options;
   	var wallet=list[idx].value;
-  	document.getElementById('to').value=wallet
+  	var name=list[idx].innerHTML;
+  	document.getElementById('to').value=wallet;
+  	document.getElementById('newadrbook').value=name;
   }
   function saveadrbook() {
   	transerr("");
@@ -751,7 +753,7 @@
   }
   #status {
   	position: absolute;
-  	left: 3; width: 97%; bottom: 0; height: 100px;
+  	left: 0px; bottom: 3px; right: 0px; height: 61px;
   	margin: auto;
   	overflow: auto;
   	padding: 7px;
@@ -868,7 +870,7 @@
   }
   #winright {
   	position: fixed;
-  	left: 585px; top: 173px; right: 3px; bottom: 3px;
+  	left: 576px; top: 173px; right: 3px; bottom: 3px;
    	margin: auto;
   	overflow: none;
   	background: #ddddff;
@@ -887,7 +889,7 @@
   }
   #trans {
   	position: absolute;
-  	left: 0px; top: 197px; bottom: 123px; right: 0px;
+  	left: 0px; top: 197px; bottom: 87px; right: 0px;
    	margin: auto;
    	margin-top: 3px;
   	overflow: auto;
@@ -1143,7 +1145,7 @@
   }
   #transbox {
   	position: absolute;
-  	left: 3px; right: 3px; bottom: 3px; top: 32px;
+  	left: 3px; right: 3px; min-height: 420px; top: 32px;
   	background: #f0f0f0;
   }
   .tfnt {
@@ -1164,13 +1166,13 @@
   	position: absolute;
   	top: 10px; left: 95px;
   	font-family: "Lucida Console";
-  	font-size: 12px;
+  	font-size: 11px;
   	color: #000080;  	
   }
   #amount {
   	position: absolute;
   	top: 40px; left: 95px;
-  	width: 200px;
+  	width: 120px;
   	font-family: "Lucida Console";
   	padding: 3px;
   	font-size: 18px;
@@ -1179,8 +1181,8 @@
   }
   #fee {
   	position: absolute;
-  	top: 40px; left: 400px;
-  	width: 120px;
+  	top: 40px; left: 260px;
+  	width: 50px;
   	font-family: "Lucida Console";
   	padding: 3px;
   	font-size: 18px;
@@ -1190,17 +1192,17 @@
   #to {
   	position: absolute;
   	top: 70px; left: 95px;
-  	width: 290px;
+  	width: 420px;
   	font-family: "Lucida Console";
   	padding: 3px;
-  	font-size: 18px;
+  	font-size: 16px;
   	color: black;
   	border: 1px blue solid;
   }
   #newadrbook {
   	position: absolute;
-  	top: 100px; left: 315px;
-  	width: 270px;
+  	top: 100px; left: 95px;
+  	width: 170px;
   	font-family: "Verdana";
   	padding: 3px;
   	font-size: 18px;
@@ -1209,7 +1211,7 @@
   }
   #adrbook {
   	position: absolute;
-  	top: 70px; left: 400px; width: 230px;
+  	top: 100px; left: 5px; width: 90px;
   	height: 28px;
   	background: #603000;
   	font-family: Tahoma;
@@ -1229,12 +1231,14 @@
   }
   #saveadrbook {
   	position: absolute;
-  	top: 97px; left: 596px;
+  	top: 95px; left: 280px;
   }
   #transerr {
   	position: absolute;
-  	left: 100px; top: 137px;
-  	width: 310px;
+  	left: 32px; top: 137px;
+  	width: 470px;
+  	max-height: 48px; height: 32px;
+  	overflow:none auto;
   	font-family: Verdana;
   	font-size: 16px;
   	color: red;
@@ -1242,8 +1246,9 @@
   }
   #addtransbut {
   	position: absolute;
-  	left: 430px; top: 140px;
+  	left: 340px; top: 100px; width: 160px;
   	font-size: 16px;
+  	font-variant: small-caps;
   }
   #transoutbox {
   	position: absolute;
@@ -1308,7 +1313,7 @@
   }
   #transbut {
   	position: absolute;
-  	right: 10px; bottom: 3px;
+  	right: 20px; bottom: 3px;
   	font-size: 16px;  	
   }
   #transconfirm {
@@ -1571,19 +1576,20 @@
     <div id="wallets">Your wallets<div class="space"></div></div>
     <div id="trans">Create a transaction
     	<div id="transbox">
-	  <div class="tfnt" style="top: 10px;">From</div><div id="from"></div>
-	  <div class="tfnt" style="top: 40px;">Amount</div>
-	  <input id="amount" onfocus="document.getElementById('amount').select()" onkeyup="checkdigit(event,'amount',1)" value="0.00000000" />
-	  <div class="tfnt" style="left: 345px; width: 40px; top: 40px;">Fee</div>
-	  <input id="fee" onfocus="document.getElementById('fee').select()" onkeyup="checkdigit(event,'fee',1)" value="0.5" />
-	  <div class="tfnt" style="left: 535px; top: 40px; width: 12px">%</div>
-	  <div class="tfnt" style="top: 70px;">To</div>
-	  <input id="to" onfocus="document.getElementById('to').select()" onkeyup="checkhex(event,'to')" onpaste="checkhexpaste('to')" />
+	  <div class="tfnt" style="top: 13px;">From</div>
+	    <div id="from"></div>
+	  <div class="tfnt" style="top: 43px;">Amount</div>
+	    <input id="amount" onfocus="document.getElementById('amount').select()" onkeyup="checkdigit(event,'amount',1)" value="0.00000000" />
+	  <div class="tfnt" style="left: 215px; width: 40px; top: 43px;">Fee</div>
+  	    <input id="fee" onfocus="document.getElementById('fee').select()" onkeyup="checkdigit(event,'fee',1)" value="0.5" />
+  	    <div class="tfnt" style="left: 325px; top: 43px; width: 12px">%</div>
+ 	  <div class="tfnt" style="top: 73px;">To</div>
+	    <input id="to" onfocus="document.getElementById('to').select()" onkeyup="checkhex(event,'to')" onpaste="checkhexpaste('to')" />
+
 	  <select id="adrbook" class="adrbook" onchange="setadrbook()"><option value="" selected>Select from addressbook</option></select>
-	  <div class="tafnt" style="top: 100px; left: 95px;">Add to addressbook as: </div>
-	  <input id="newadrbook" onkeydown="checksubmit(event,'saveadrbook')" />
-	  <img id="saveadrbook" src="image/save.png" height="38" class="muis" onclick="saveadrbook()" />
-	  <div id="transerr" /></div>
+  	    <input id="newadrbook" onkeydown="checksubmit(event,'saveadrbook')" />
+	    <img id="saveadrbook" src="image/save.png" height="38" class="muis" onclick="saveadrbook()" title="Save to Addressbook" />
+	  <div id="transerr" style="border:solid 1px gray;" /></div>
 	  <div id="addtransbut" class="selbut bluebut muis" onclick="addtrans()">Add Transaction</div>
 	  <div id="transoutbox"></div>
 	  <div class="tfnt" style="width: 170px; bottom: 40px;">Wallet for change</div>
