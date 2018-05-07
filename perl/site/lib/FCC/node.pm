@@ -33,7 +33,6 @@ use Time::HiRes qw(gettimeofday usleep);
 use FCC::global;
 use FCC::wallet 1.02;
 use FCC::fcc;
-use gparse;
 
 my $DEBUG=0;
 
@@ -102,6 +101,7 @@ my $CURVERSION;
 my $COINBASELIST=[];
 my $MINING=0;
 my $MINER;
+my $STATUSTIME=time;
 
 my $printed={};
 
@@ -141,9 +141,30 @@ sub connectinfo {
   $SERVER->broadcastfunc(\&getci,$unknowns,'unknown');
   return { parents => $parents, leaves => $leaves, miners => $miners, nodes => $nodes, unknowns => $unknowns }
 }
+
 sub setserv {
  my($ip,$port)=@_;
  $FCCSERVERLAN = [ $ip,$port ];
+}
+
+sub statusmsg {
+  if(time ne $STATUSTIME){
+    $STATUSTIME=time;
+    my $inf=connectinfo();
+    my $nparents=(1+$#{$inf->{parents}});
+    my $nnodes=(1+$#{$inf->{nodes}});
+    my $nleaves=(1+$#{$inf->{leaves}});
+    my $nminers=(1+$#{$inf->{miners}});
+    my $nunknowns=(1+$#{$inf->{unknowns}});
+    my $ntrans=(1+$#{[keys %$TRANSLIST]});
+    print prtm(),
+      ($nparents ? "Parents $nparents ":"").
+      ($nnodes ? "Childs $nnodes ":"").
+      ($nleaves ? "Leaves $nleaves ":"").
+      ($nminers ? "Miners $nminers ":"").
+      ($nunknowns ? "Unknowns $nunknowns ":"").
+      " LedgerLen $LEDGERLEN Pending Trans $ntrans     \r"
+  }
 }
 
 ################# FCC MAGIC #############################################################################################################
@@ -1096,6 +1117,7 @@ sub serverloop {
     }
     $LASTCLIENTRUN=$ctm
   }
+  statusmsg();
 }
 
 sub checkleafjob {
