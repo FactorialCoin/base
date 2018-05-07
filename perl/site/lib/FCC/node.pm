@@ -33,8 +33,9 @@ use Time::HiRes qw(gettimeofday usleep);
 use FCC::global;
 use FCC::wallet 1.02;
 use FCC::fcc;
+use gparse;
 
-my $DEBUG=1;
+my $DEBUG=0;
 
 # some to become config
 my $SERVER;              # gserv-handle of node-server
@@ -1444,12 +1445,13 @@ sub c_reqledger {
   if ($k->{pos}+$k->{length}>$LEDGERLEN) {
     fault($client); return
   }
-  my $data=gfio::content('ledger.fcc',$k->{pos},$k->{length});
+  my $data=zb64(gfio::content('ledger.fcc',$k->{pos},$k->{length}));
   outjson($client,{ command => "ledgerdata", pos => $k->{pos}, data => $data, final => $k->{final} || 0, first => $k->{first} || 0 })
 }
 
 sub c_ledgerdata {
   my ($client,$k) = @_;
+  $k->{data}=b64z($k->{data});
   if (!$SYNCING) {
     ledgerdata($k->{data},$k->{first});
     if ($k->{final}) {
@@ -1805,7 +1807,7 @@ sub votesuggest {
 
   my $tr=$trans || $activate;
   if (!$tr) { return }
-  print "********** Votesuggest = $tr\n";
+#  print "********** Votesuggest = $tr\n";
 
   my $nodelist=corelist();
   if ($trans) {
@@ -1855,9 +1857,7 @@ sub votesuggest {
       outcorejson($ot)
     }
   }
-  if ($VOTING) {
-    print "  **** Tumbling down the rabbithole ****\n"
-  }
+  # if ($VOTING) { print "  **** Tumbling down the rabbithole ****\n" }
 }
 
 sub analysevotes {
@@ -1865,7 +1865,7 @@ sub analysevotes {
   if (!$VOTING) { return }
 
   if (!$printed->{$VOTE->{round}}) {
-    print "Voting Round = $VOTE->{round} Total = $VOTE->{total}\n";
+    #print "Voting Round = $VOTE->{round} Total = $VOTE->{total}\n";
     $printed->{$VOTE->{round}}=1
   }
 
@@ -1880,7 +1880,7 @@ sub analysevotes {
       my $rp=$VOTE->{responses}[$VOTE->{round}]{$mask}; push @rplist,$rp
     }
     my $nrp = 1 + $#rplist;
-    print "Voting: Received = $VOTE->{received}[$VOTE->{round}] NRP = $nrp\n";
+    #print "Voting: Received = $VOTE->{received}[$VOTE->{round}] NRP = $nrp\n";
     if ($#rplist < 0) {
       # we are stalled ..
       if ($VOTE->{total}) {
@@ -1954,10 +1954,7 @@ sub analysevotes {
       $list->{$rp->{transhash}}+=$q; $vtot+=$q;
     }
     my @slist = sort { $list->{$b} <=> $list->{$a} } keys %$list;
-    print "Voting count:\n";
-    foreach my $s (@slist) {
-      print "$list->{$s} $s\n"
-    }
+    # print "Voting count:\n"; foreach my $s (@slist) { print "$list->{$s} $s\n" }
     if ($VOTE->{round} == 1) {
 
       if ($#slist == 0) {
@@ -1965,7 +1962,6 @@ sub analysevotes {
         if ($TRANSLIST->{$slist[0]}) {
           # this is the perfect state, a perfectly synced core
           my $tr=$TRANSLIST->{$slist[0]};
-          print "TO LEDGER\n";
           transtoledger($TRANSLIST->{$slist[0]});
           return
         } elsif ($TRANSCATCHUP->{$slist[0]}) {
@@ -2129,5 +2125,7 @@ sub transtoledger {
   $LASTBLOCK=readlastblock(); $LEDGERLEN=$LASTBLOCK->{pos}+$LASTBLOCK->{next}+4;
   delvote(1)
 }
+
+# I love it when a plan comes together :)
 
 # EOF FCC Node by Chaosje (C) 2018 Domero
