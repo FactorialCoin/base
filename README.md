@@ -28,7 +28,7 @@ Macintosh Install Pack (perl included):
 
 GitHub Install:
 
-put perl/site/lib into your .../perl/site/lib directory.
+put perl/site/lib into your Perl's /site/lib directory.
 
 Directory FCC containce the Wallet and Node start and run scripts for all available Os's.
 
