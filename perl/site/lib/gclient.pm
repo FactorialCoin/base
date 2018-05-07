@@ -472,62 +472,56 @@ sub website_event {
   if (($command eq 'quit') || ($command eq 'error')) {
     $client->{iquit}=1
   } elsif ($command eq 'input') {
+    $client->{hbuffer}.=$data;
     if ($client->{readheader}) {
-      if (length($data) == 0) {
+      if ($client->{hbuffer} =~ /\r\n\r\n/) {
+        my ($hdata,@cdata)=split(/\r\n\r\n/,$client->{hbuffer});
+        $client->{hbuffer}=join("\r\n\r\n",@cdata);
+        foreach my $line (split(/\r\n/,$hdata)) {
+          processheader($client,$line)
+        }
         $client->{readheader}=0;
-        # data to be expected?
         if (defined $client->{header}{'Content-Length'}) {
           $client->{httplength}=$client->{header}{'Content-Length'};
           if (!$client->{httplength}) {
-            $client->{iquit}=1
+            $client->{iquit}=1; return
           }
         } elsif ((defined $client->{header}{'Transfer-Encoding'}) && ($client->{header}{'Transfer-Encoding'} =~ /chunked/i)) {
           $client->{chunked}=1
         } elsif ((defined $client->{header}{'Content-Encoding'}) && ($client->{header}{'Content-Encoding'} =~ /chunked/i)) {
           $client->{chunked}=1
-        }
-      } else {
-        processheader($client,$data);
+        }        
       }
-    } else {
-      if ($client->{chunked}) {
-        if (!$client->{chunk}) {
-          if (length($data) == 0) {
-            $client->{iquit}=1
-          } else {
-            my $len=length($data);
-            if ($len<6) {
-              $client->{chunk}=hex($data);
+    }
+    if (!$client->{readheader}) {
+      if (length($client->{hbuffer}) >= $client->{httplength}) {
+        # prevent exploits
+        $client->{hbuffer}=substr($client->{hbuffer},0,$client->{httplength});
+        if ($client->{chunked}) {
+          my $mode=1; my $pos=0; my $size=0; my $read="";
+          while ($pos < length($client->{hbuffer})) {
+            if ($mode == 1) {
+              if (substr($client->{hbuffer},$pos,2) eq "\r\n") {
+                if ($read =~ /[^a-fA-F0-9]/) {
+                  $client->{error}="Corrupted chunk-size in content"; $client->{iquit}=1; return
+                }
+                $size=hex($read); $read=""; $mode=2; $pos+=2
+              } else {
+                $read.=substr($client->{hbuffer},$pos,1); $pos++
+              }
             } else {
-              $client->{chunk}=0
+              $client->{content}.=substr($client->{hbuffer},$pos,$size);
+              $pos+=$size;
+              if (substr($client->{hbuffer},$pos,2) ne "\r\n") {
+                $client->{error}="Corrupted chunked data in content"; $client->{iquit}=1; return
+              }
+              $pos+=2; $mode=1
             }
-            if ($client->{chunk} == 0) {
-              $client->{iquit}=1
-            }
           }
-        } else {
-          if (length($data)+2<=$client->{chunk}) { $data.="\r\n" }
-          $client->{chunkbuf}.=$data;
-          $client->{chunk}-=length($data);
-          if ($client->{chunk}<=0) {
-            $client->{content}.=$client->{chunkbuf};
-            $client->{chunkbuf}=""; $client->{chunk}=0;
-          }
+        } else {        
+          $client->{content}=$client->{hbuffer};
         }
-      } else {        
-        $client->{content}.=$data;
-        $client->{dataread}+=length($data);
-        if ($client->{httplength}) {
-          if ($client->{dataread}+2<=$client->{httplength}) {
-            # is the 'enter' data or not?
-            $client->{content}.="\r\n"; $client->{dataread}+=2
-          }
-          if ($client->{dataread}+2>=$client->{httplength}) {
-            $client->{iquit}=1;
-          }
-        } else {
-          $client->{content}.="\r\n"; $client->{dataread}+=2
-        }
+        $client->{iquit}=1;
       }
     }
   }
@@ -562,28 +556,23 @@ sub website {
   my $head=join("\r\n",@header)."\r\n\r\n";
   my $client;
   if ($proxy) {
-    $client=tcpip($proxyinfo->{host},$proxyinfo->{port},0,\&website_event,$proxyinfo->{ssl},1,5);
+    $client=tcpip($proxyinfo->{host},$proxyinfo->{port},0,\&website_event,$proxyinfo->{ssl},0,5);
   } else {
-    $client=tcpip($info->{host},$info->{port},0,\&website_event,$info->{ssl},1,5);
+    $client=tcpip($info->{host},$info->{port},0,\&website_event,$info->{ssl},0,5);
   }
   $client->out($head);
   $client->outburst();
   #$client->{debug}=1;
   $client->{readheader}=1;
-  $client->{gotheader}=0;
+  $client->{hbuffer}="";
   $client->{header}={};
-  $client->{content}="";
   $client->{httplength}=0;
   $client->{chunked}=0;
-  $client->{chunk}=0;
-  $client->{chunkbuf}="";
-  $client->{dataread}=0;
-  $client->{timedout}=0;
-  $client->{dd}="";
+  $client->{content}="";
   $client->{iquit}=0;
+  $client->{timedout}=0;
   my $tm=gettimeofday();
   while (!$client->{iquit}) {
-    usleep(10000);
     $client->takeloop();
     if (gettimeofday()-$tm>5) {
       $client->{timedout}=1;
