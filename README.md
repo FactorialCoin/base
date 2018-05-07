@@ -11,38 +11,19 @@ Download Perl & FCC Install:
 
 Full Install Pack All OS's (perl included):
 
-  RAR: https://factorialcoin.nl/download/FCC_Install_WinLinMac_0101.rar
-
-  TGZ: https://factorialcoin.nl/download/FCC_Install_WinLinMac_0101.tar.gz
-
-  ZIP: https://factorialcoin.nl/download/FCC_Install_WinLinMac_0101.zip
-
+  https://factorialcoin.nl/download/FCC_Install_WinLinMac_0101.rar
 
 Windows Install Pack (perl included):
 
-  RAR: https://factorialcoin.nl/download/FCC_Install_Windows_0101.rar
-
-  TGZ: https://factorialcoin.nl/download/FCC_Install_Windows_0101.tar.gz
-
-  ZIP: https://factorialcoin.nl/download/FCC_Install_Windows_0101.zip
-
+  https://factorialcoin.nl/download/FCC_Install_Windows_0101.rar
 
 Linux Install Pack (perl included):
 
-  RAR: https://factorialcoin.nl/download/FCC_Install_Linux_0101.rar
-
-  TGZ: https://factorialcoin.nl/download/FCC_Install_Linux_0101.tar.gz
-
-  ZIP: https://factorialcoin.nl/download/FCC_Install_Linux_0101.zip
-
+  https://factorialcoin.nl/download/FCC_Install_Linux_0101.tar.gz
 
 Macintosh Install Pack (perl included):
 
-  RAR: https://factorialcoin.nl/download/FCC_Install_Macintosh_0101.rar
-
-  TGZ: https://factorialcoin.nl/download/FCC_Install_Macintosh_0101.tar.gz
-
-  ZIP: https://factorialcoin.nl/download/FCC_Install_Macintosh_0101.zip
+  https://factorialcoin.nl/download/FCC_Install_Macintosh_0101.rar
 
 
 GitHub Install:
