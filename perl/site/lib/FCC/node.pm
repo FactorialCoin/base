@@ -1794,7 +1794,7 @@ sub transinblocks {
   my ($wallet) = @_;
   my $blocks=[];
   foreach my $trans (keys %$TRANSLIST) {
-    if ($TRANSLIST->{$trans}{wallet} eq $wallet) {
+    if ($TRANSLIST->{$trans} && ($TRANSLIST->{$trans}{wallet} eq $wallet)) {
       push @$blocks,@{$TRANSLIST->{$trans}{inblocks}}
     }
   }
