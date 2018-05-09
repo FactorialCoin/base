@@ -16,6 +16,7 @@ use FCC::wallet 2.01 qw(validwallet validwalletpassword walletisencoded newwalle
 use FCC::leaf 2.01 qw(startleaf leafloop closeleaf);
 use gerr qw(error);
 use JSON;
+use gparse;
 
 ###### Use this to force connecting to trusted nodes ###########################
 
@@ -33,6 +34,7 @@ my $PORT =
 my $DEBUG = 1;
 my $INIT = 0;
 my $SERVER;
+my $POOL;
 my $WEBSITEINIT=0;
 my $FCCSERVER='https://'. $FCCSERVERIP.':'.$FCCSERVERPORT;
 my @NODES=(); my $NODENR=0; my $WLIST=[]; my $PASS;
@@ -63,12 +65,17 @@ sub termquit {
 sub sockquit {
   killserver("32 TCP/IP Connection error"); exit
 }
+
 sub killleaves {
   my ($client,$message) = @_;
   if ($client->{fcc}{leaf}) {
     $client->{fcc}{leaf}->wsquit($message)
   }
+  if ($client->{fcc}{miner}) {
+    $client->{fcc}{miner}->wsquit($message)
+  }
 }
+
 sub killserver {
   if ($SERVER) {
     broadcastfunc($SERVER,\&killleaves,$_[0]);
@@ -78,10 +85,16 @@ sub killserver {
   if ($MINER) { $MINER->closeleaf() }
   if (!$_[1]) { exit }
 }
+
 sub quitleaf {
   my ($client) = @_;
-  if ($client->{fcc} && $client->{fcc}{leaf}) {
-    closeleaf($client->{fcc}{leaf})
+  if ($client->{fcc}){
+    if($client->{fcc}{leaf}) {
+      closeleaf($client->{fcc}{leaf})
+    }
+    elsif($client->{fcc}{miner}) {
+      closeleaf($client->{fcc}{miner})
+    }
   }
 }
 
@@ -149,7 +162,7 @@ sub serverloop {
   broadcastfunc($SERVER,\&loopclient);
   if ($MINING) {
     my $tb=1;
-    my $lsz=3333;
+    my $lsz=1000;
     for (my $i=0;$i<$lsz;$i++) {
       mineloop()
     }
@@ -167,7 +180,7 @@ sub serverloop {
       $MINEDATA->{fhash}=0
     }
   }
-  usleep(1000);
+  usleep(100);
 }
 
 sub challenge {
@@ -219,7 +232,8 @@ sub mineloop {
         }
       }
     } else {
-      print "Error.. mined all possibilities\n"
+      print "Error.. mined all possibilities\n";
+      wsmessage($MINER->{client},"miner Error.. mined all possibilities :-(")
     }
   }
 }
@@ -514,20 +528,13 @@ sub handle {
     push @out,"Server: FCC-Private Wallet Server 1.0";
     push @out,"Date: ".fcctimestring();
     if ($uri eq '/') {
-      my $data=gfio::content('wallet.htm');
-      $data =~ s/\$PORT/$PORT/gs;
-      push @out,"Content-Type: text/html";
-      push @out,"Content-Length: ".length($data);
-      my $hdata=join("\r\n",@out)."\r\n\r\n";
-      $data=$hdata.$data;
-      gserv::burst($client,\$data);
+      burstfile($client,'wallet.htm','text/html',0,@out);
+    } elsif ($uri eq '/wallet.js') {
+      burstfile($client,'wallet.js','text/javascript',1,@out);
+    } elsif ($uri eq '/wallet.css') {
+      burstfile($client,'wallet.css','text/css',0,@out);
     } elsif ($uri =~ /image\/(.+)$/) {
-      my $data=gfio::content("image/$1");
-      push @out,"Content-Type: image/png";
-      push @out,"Content-Length: ".length($data);
-      my $hdata=join("\r\n",@out)."\r\n\r\n";
-      $data=$hdata.$data;
-      gserv::burst($client,\$data);
+      burstfile($client,"image/$1",$1 =~ /gif$/ ? 'image/gif':'image/png',0,@out);
     } else {
       $out[0]=gserv::httpresponse(404);
       my $hdata=join("\r\n",@out)."\r\n\r\n";
@@ -537,6 +544,24 @@ sub handle {
   }
   usleep(10000)
 }
+
+sub burstfile {
+  my($client,$file,$meme,$filter,@out)=@_;
+  my $data=($filter ? filtervars(gfio::content($file)) : gfio::content($file));
+  push @out,"Content-Type: $meme";
+  push @out,"Content-Length: ".length($data);
+  my $hdata=join("\r\n",@out)."\r\n\r\n";
+  $data=$hdata.$data;
+  gserv::burst($client,\$data);
+  return @out
+}
+
+sub filtervars {
+  my($data)=@_;
+  $data =~ s/\$PORT/$PORT/gs;
+  return $data
+}
+
 
 sub status {
   my ($client,$txt) = @_;
