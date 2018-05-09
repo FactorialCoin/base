@@ -16,7 +16,6 @@ use FCC::wallet 2.01 qw(validwallet validwalletpassword walletisencoded newwalle
 use FCC::leaf 2.01 qw(startleaf leafloop closeleaf);
 use gerr qw(error);
 use JSON;
-use gparse;
 
 ###### Use this to force connecting to trusted nodes ###########################
 
