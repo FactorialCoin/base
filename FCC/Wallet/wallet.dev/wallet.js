@@ -23,7 +23,7 @@
   }
   
   function mineout(txt) {
-    if ((/New challenge:/gsi).test(txt)) {
+    if ((/New challenge:/gi).test(txt)) {
       mtime=Date.now()/1000;
       var sd=document.getElementById('minediff');
       sd.innerHTML = txt.replace('New challenge: ','');
@@ -36,14 +36,14 @@
         wininfo();
       }
     }
-    else if ((/Speed:/gsi).test(txt)) {
+    else if ((/Speed:/gi).test(txt)) {
       var sd=document.getElementById('minespeed');
       var mtm=Date.now()/1000;
       sd.innerHTML = txt.replace('Speed: ','');
       drawSpeed(sd.innerHTML);
       sd.innerHTML +=" <sup><small>[ "+Math.floor(mtm-mtime)+" ]</small></sup>";
     }
-    else if ((/Found solution/gsi).test(txt)) {
+    else if ((/Found solution/gi).test(txt)) {
       var st=document.getElementById('mineoutput');
       st.innerHTML += "<br>" + txt;
       wins++;
