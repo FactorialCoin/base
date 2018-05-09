@@ -55,6 +55,7 @@ my $FCCHANDLE;           # gclient handle to the FCC-Server
 my $FCCLOOPTIME=0;
 my $CYCLELOOP=0;
 my $FCCINIT=0;           # Initialisation state
+my $STATUSTIME=time;
 my $FCCRECONNECT= { sec => 0, time => time };
 my $FCCHANDSHAKE=0;
 my $TRYTIME=0;
@@ -101,7 +102,6 @@ my $CURVERSION;
 my $COINBASELIST=[];
 my $MINING=0;
 my $MINER;
-my $STATUSTIME=time;
 
 my $printed={};
 
@@ -141,30 +141,9 @@ sub connectinfo {
   $SERVER->broadcastfunc(\&getci,$unknowns,'unknown');
   return { parents => $parents, leaves => $leaves, miners => $miners, nodes => $nodes, unknowns => $unknowns }
 }
-
 sub setserv {
  my($ip,$port)=@_;
  $FCCSERVERLAN = [ $ip,$port ];
-}
-
-sub statusmsg {
-  if(time ne $STATUSTIME){
-    $STATUSTIME=time;
-    my $inf=connectinfo();
-    my $nparents=(1+$#{$inf->{parents}});
-    my $nnodes=(1+$#{$inf->{nodes}});
-    my $nleaves=(1+$#{$inf->{leaves}});
-    my $nminers=(1+$#{$inf->{miners}});
-    my $nunknowns=(1+$#{$inf->{unknowns}});
-    my $ntrans=(1+$#{[keys %$TRANSLIST]});
-    print prtm(),
-      ($nparents ? "Parents $nparents ":"").
-      ($nnodes ? "Childs $nnodes ":"").
-      ($nleaves ? "Leaves $nleaves ":"").
-      ($nminers ? "Miners $nminers ":"").
-      ($nunknowns ? "Unknowns $nunknowns ":"").
-      " LedgerLen $LEDGERLEN Pending Trans $ntrans     \r"
-  }
 }
 
 ################# FCC MAGIC #############################################################################################################
@@ -845,6 +824,26 @@ sub goactive {
   $SYNCING=0;
 }
 
+sub statusmsg {
+  if (time ne $STATUSTIME) {
+   $STATUSTIME=time;
+   my $inf=connectinfo();
+   my $nparents=(1+$#{$inf->{parents}});
+   my $nnodes=(1+$#{$inf->{nodes}});
+   my $nleaves=(1+$#{$inf->{leaves}});
+   my $nminers=(1+$#{$inf->{miners}});
+   my $nunknowns=(1+$#{$inf->{unknowns}});
+   my $ntrans=(1+$#{[keys %$TRANSLIST]});
+   print prtm(),
+     ($nparents ? "Parents[$nparents] ":"").
+     ($nnodes ? "Childs[$nnodes] ":"").
+     ($nleaves ? "Leaves[$nleaves] ":"").
+     ($nminers ? "Miners[$nminers] ":"").
+     ($nunknowns ? "Unknowns[$nunknowns] ":"").
+     " LedgerLen[$LEDGERLEN] Pending[$ntrans]     \r"
+  }
+}
+
 sub serverloop {
   # The FCC Node Control Kernel
   if (!$SERVER) { exit }
@@ -857,6 +856,7 @@ sub serverloop {
       exit
     }
   }
+  statusmsg();
   my @nodes=(keys %$PARENTLIST); my $done=0;
   if ($#nodes >= 0) {
     if ($PARENTLOOP > $#nodes) { $PARENTLOOP=0 }
@@ -1117,7 +1117,6 @@ sub serverloop {
     }
     $LASTCLIENTRUN=$ctm
   }
-  statusmsg();
 }
 
 sub checkleafjob {
@@ -1709,9 +1708,12 @@ sub addtransaction {
 
 sub checkinblocks {
   my ($trans) = @_;
+  if (!$trans->{pubkey}) { 
+    $trans->{error}="Unexpected error: No public key found in new transaction"; return 
+  }
   my %cib=(); foreach my $ib (@{$trans->{inblocks}}) { $cib{$ib}=1 }
   foreach my $t (keys %$TRANSLIST) {
-    if ($TRANSLIST->{$t}{pubkey} eq $trans->{pubkey}) {
+    if ($TRANSLIST->{$t}{pubkey} && ($TRANSLIST->{$t}{pubkey} eq $trans->{pubkey})) {
       foreach my $ib (@{$TRANSLIST->{$t}{inblocks}}) {
         if ($cib{$ib}) {
           $trans->{error}="Double spending transaction flood detected";
