@@ -50,29 +50,6 @@
       </div>
     </div>
     
-    <div id="passbox" class="centbox loginbox">
-      <b>Unlock your wallet</b><br>
-      <div class="tmarg">
-        <table class="t">
-          <tr><td class="itext">Password</td><td><input type="password" class="ival" id="wachtwoord" onkeydown="checksubmit(event,'passbut')" /></td></tr>
-          <tr><td colspan="2"><div id="passerr" class="errtxt"></div></td></tr>
-          <tr><td colspan="2" class="tdr"><div id="passbut" class="sbut muis" onclick="checkpass()">OK</div></td></tr>
-        </table>
-      </div>
-    </div>
-    
-    <div id="newpassbox" class="centbox loginbox">
-      <b>Set a password to encrypt your wallet</b><br /></br >
-      <div class="tmarg">
-        <table class="t">
-          <tr><td class="itext">Password</td><td><input type="password" class="ival" id="newpass" onkeydown="checkenter(event,'newpassvld')" /></td></tr>
-          <tr><td class="itext">Repeat Password</td><td><input type="password" class="ival" id="newpassvld" onkeydown="checksubmit(event,'newpassbut')" /></td></tr>
-          <tr><td colspan="2"><div id="newpasserr" class="errtxt"></div></td></tr>
-          <tr><td class="tdr"><div id="newpassbut" class="sbut muis" onclick="setnewpass()">OK</div></td><td class="tdr"><div class="sbut cancbut muis" onclick="cancelnewpass()">Cancel</div></td></tr>
-        </table>
-      </div>
-    </div>
-
     <div id="active">
       <img id="fcclogo" src="image/fcclogo.png" height="82" />
       <div id="powerbutton"
@@ -146,5 +123,28 @@
       </div>
     </div>
     
+    <div id="passbox" class="centbox loginbox">
+      <b>Unlock your wallet</b><br>
+      <div class="tmarg">
+        <table class="t">
+          <tr><td class="itext">Password</td><td><input type="password" class="ival" id="wachtwoord" onkeydown="checksubmit(event,'passbut')" /></td></tr>
+          <tr><td colspan="2"><div id="passerr" class="errtxt"></div></td></tr>
+          <tr><td colspan="2" class="tdr"><div id="passbut" class="sbut muis" onclick="checkpass()">OK</div></td></tr>
+        </table>
+      </div>
+    </div>
+    
+    <div id="newpassbox" class="centbox loginbox">
+      <b>Set a password to encrypt your wallet</b><br /></br >
+      <div class="tmarg">
+        <table class="t">
+          <tr><td class="itext">Password</td><td><input type="password" class="ival" id="newpass" onkeydown="checkenter(event,'newpassvld')" /></td></tr>
+          <tr><td class="itext">Repeat Password</td><td><input type="password" class="ival" id="newpassvld" onkeydown="checksubmit(event,'newpassbut')" /></td></tr>
+          <tr><td colspan="2"><div id="newpasserr" class="errtxt"></div></td></tr>
+          <tr><td class="tdr"><div id="newpassbut" class="sbut muis" onclick="setnewpass()">OK</div></td><td class="tdr"><div class="sbut cancbut muis" onclick="cancelnewpass()">Cancel</div></td></tr>
+        </table>
+      </div>
+    </div>
+
   </body>
 </html>
