@@ -161,7 +161,7 @@
   
   #fcclogo {
   	position: absolute;
-  	left: 96px; top: 6px; 
+  	left: 97px; top: 9px; 
   }
   
   #powerbutton {
@@ -173,6 +173,7 @@
   	color: black;
   	padding: 7px;
   	border: 3px ridge #205090;
+    border-radius: 64px;
   }
   #powerimage {
   	position: relative;
@@ -190,11 +191,13 @@
   	border: 3px ridge #205090;
   	font-size: 13px;
   	font-family: Verdana;
+    border-top-left-radius: 64px;
+    border-bottom-left-radius: 64px;
   }
   
   #wallet {
   	position: absolute;
-  	left: 16px;
+  	left: 176px;
   	top: 8px;
   	font-family: "Lucida Console";
   	font-size: 17px;
@@ -203,12 +206,12 @@
   }  
   #copywallet {
   	position: absolute;
-  	left: 15px; top: 26px; width: 32px;
+  	left: 175px; top: 26px; width: 32px;
   	visibility: hidden;
   }
   #walname {
   	position: absolute;
-  	left: 53px;
+  	left: 213px;
   	top: 30px;
   	height: 20px;
   	width: 140px;
@@ -217,20 +220,20 @@
   }
   #savewalbut {
   	position: absolute;
-  	left: 212px; height: 32px;
+  	left: 372px; height: 32px;
   	top: 26px;
   	visibility: hidden;
   }
   #fcc {
   	position: absolute;
-  	left: 250px;
+  	left: 410px;
   	top: 26px;
   	height: 32px;
   	visibility: hidden;
   }
   #balance {
   	position: absolute;
-  	left: 290px;
+  	left: 450px;
   	top: 26px;
   	font-family: Arial;
   	font-size: 32px;
@@ -239,7 +242,7 @@
   }
   #delwalbut {
   	position: absolute;
-  	left: 470px;
+  	left: 630px;
   	width: 200px;
   	top: 26px;
   	font-size: 18px;
@@ -247,9 +250,9 @@
   }
   #copied {
   	position: absolute;
-  	left: 430px; top: 60px;
+  	left: 190px; top: 59px;
   	font-family: arial;
-  	font-size: 18px;
+  	font-size: 16px;
   	font-weight: bold;
   	color: #004000;
   }
@@ -265,17 +268,36 @@
   	border: 3px ridge #205090;
   	background: rgba(255,255,255,0.7);  	
   }
+  #minecanv {
+    position: absolute;
+    left: 10px; top: 10px;
+    width: 420px; height: 29px;
+    border: solid 1px gray;
+  }
+  #minecanvas {
+    position: absolute;
+    left:0px; top:0px;
+    width: 100%; height: 100%;
+  }
+  #minespeed {
+    position: absolute;
+    left:0px; top:0px;
+    width: 100%; height: 100%;
+    text-align: center;
+    font-size: 15px;
+    font-weight: bolder;
+    color: white;
+    line-height: 27px;
+        box-shadow: 0px 0px 3px rgba(132,132,132,0.9);
+    text-shadow: 0px 0px 3px rgba(0,0,0,0.5);
+  }
   #startminer {
   	position: absolute;
-  	left: 310px; top: 10px; width: 140px;
-  	font-size:13px;
-  	font-variant: small-caps;
+  	left: 440px; top: 12px; width: 28px;
   }
   #stopminer {
   	position: absolute;
-  	left: 310px; top: 10px; width: 140px;
-  	font-size:13px;
-  	font-variant: small-caps;
+  	left: 440px; top: 12px; width: 28px;
   	visibility: hidden;
   }
   #minewallet {
@@ -293,29 +315,6 @@
   	font-size: 11px;
   	font-weight: bolder;
   	color: #606030;
-  }
-  #minecanv {
-  	position: absolute;
-  	left: 10px; top: 10px;
-  	width: 290px; height: 29px;
-  	border: solid 1px gray;
-  }
-  #minecanvas {
-  	position: absolute;
-  	left:0px; top:0px;
-  	width: 100%; height: 100%;
-  }
-  #minespeed {
-  	position: absolute;
-  	left:0px; top:0px;
-  	width: 100%; height: 100%;
-  	text-align: center;
-  	font-size: 15px;
-  	font-weight: bolder;
-  	color: white;
-  	line-height: 27px;
-        box-shadow: 0px 0px 3px rgba(132,132,132,0.9);
-  	text-shadow: 0px 0px 3px rgba(0,0,0,0.5);
   }
   #minewins {
   	position: absolute;

@@ -51,10 +51,11 @@
     </div>
     
     <div id="active">
-      <img id="fcclogo" src="image/fcclogo.png" height="82" />
       <div id="powerbutton"
-        onmouseclick="if(confirm('Click Ok to confirm you want to close down your wallet / miner')) powerDownWallet()"
+        onclick="if(confirm('Click Ok to confirm you want to close down your wallet / miner')) powerDownWallet()"
       ><img id="powerimage" src="image/powerdown.png" height="64" class="muis" onclick="powerdown()" title="Powerdown the Wallet and Miner" /></div>
+
+      <img id="fcclogo" src="image/fcclogo.png" height="78" />
 
       <div id="activefront">
         <div id="wallet"></div>
@@ -66,16 +67,16 @@
         <div id="copied"></div>
         <div id="delwalbut" class="selbut redbut muis" onclick="delwal()">Delete wallet</div>
       </div>
-
+      
       <div id="miner">
-        <div id="startminer" class="selbut greenbut muis" onclick="startminer()">Start Mining</div>
-        <div id="stopminer" class="selbut redbut muis" onclick="stopminer()">Stop Mining</div>
-        <div id="minewallet"></div>
-        <div id="minediff"></div>
         <div id="minecanv">
           <canvas id="minecanvas" width="500" height="100"></canvas>
           <div id="minespeed"></div>
         </div>
+        <img id="startminer" class="muis" onclick="startminer()" src="image/start.png" />
+        <img id="stopminer" class="muis" onclick="stopminer()" src="image/pause.png" />
+        <div id="minewallet"></div>
+        <div id="minediff"></div>
         <div id="mineoutput">Miner inactive</div>
         <div id="minewins">Winnings..</div>
         <img id="pickaxe" src="image/pickaxe.gif" />

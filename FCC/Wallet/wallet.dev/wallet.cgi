@@ -44,6 +44,7 @@ my $MINEDATA={ coincount => 0 };
 my $MINFHASH=undef;
 my $MAXFHASH=undef;
 my $MINERWALLET="";
+my $POWERDOWN=0;
 
 $SIG{'INT'}=\&intquit;
 $SIG{'TERM'}=\&termquit;
@@ -178,6 +179,13 @@ sub serverloop {
       if ($MINER->{client}) { wsmessage($MINER->{client},"miner Speed: $hr Fhash/sec ($done %)") }
       $MINEDATA->{fhash}=0
     }
+  }
+  if($POWERDOWN){
+    leafloop();
+    if($POWERDOWN > 100){
+      exit 1;
+    }
+    $POWERDOWN++
   }
   usleep(100);
 }
@@ -506,7 +514,14 @@ sub handle {
       if ($MINING) {
         $MINER->closeleaf(); $MINING=0; $MINEDATA->{coincount}=0
       }
+    } elsif ($data =~ /powerdown/) {
+      if ($MINING) {
+        $MINER->closeleaf(); $MINING=0; $MINEDATA->{coincount}=0;
+      }
+      wsmessage($client,"powerdownnow");
+      $POWERDOWN=1;
     }
+
   } elsif ($command eq 'error') {
     if ($client->{websockets}) {
       print "Error in website connection! $data\n";

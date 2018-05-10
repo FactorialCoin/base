@@ -144,6 +144,9 @@
       else if (target == 'transtotal') {
       	document.getElementById('transtotal').innerHTML=arg
       }
+      else if (target == 'powerdownnow'){
+        window.close();
+      }
     }
     socket.onclose = function() {
       if (connected) {
