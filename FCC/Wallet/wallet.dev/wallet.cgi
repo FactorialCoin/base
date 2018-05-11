@@ -28,6 +28,13 @@ my $PORT =
   $ARGV[0] && $ARGV[0] =~ /[0-9]+/ ? $ARGV[0] : 
   -e "wallet.port" ? gfio::content("wallet.port") : 
   5115;
+# Local Wallet Chat Nick & Ident
+my $NICKIDENT;
+if (-e "nickident.chat") {
+  $NICKIDENT=decode_json(gfio::content("nickident.chat"));
+} else {
+  $NICKIDENT={}
+}
 ######################################################
 
 my $DEBUG = 1;
@@ -45,6 +52,7 @@ my $MINFHASH=undef;
 my $MAXFHASH=undef;
 my $MINERWALLET="";
 my $POWERDOWN=0;
+my $MINERDISCON=0;
 
 $SIG{'INT'}=\&intquit;
 $SIG{'TERM'}=\&termquit;
@@ -134,7 +142,10 @@ sub loopclient {
         } elsif ($job->{command} eq 'transfer') {
           $leaf->transfer($job->{pubkey},$job->{change},$job->{outlist})
         } elsif ($job->{command} eq 'startminer') {
-          if(!$MINING){
+          print "Starting Miner\n";
+          if(!$MINING || !$MINER || $MINERDISCON){
+            $MINERDISCON=0;
+            print "Opening Node Connection\n";
             $MINER=startleaf($client->{fcc}{leafip},$client->{fcc}{leafport},\&slaveminercall,0,1);
           }
           $MINER->{client}=$client;
@@ -515,11 +526,19 @@ sub handle {
         $MINER->closeleaf(); $MINING=0; $MINEDATA->{coincount}=0
       }
     } elsif ($data =~ /powerdown/) {
-      if ($MINING) {
-        $MINER->closeleaf(); $MINING=0; $MINEDATA->{coincount}=0;
-      }
       wsmessage($client,"powerdownnow");
+      if ($MINING) { $MINER->closeleaf(); $MINING=0; $MINEDATA->{coincount}=0 }
       $POWERDOWN=1;
+    } elsif ($data =~ /^savechat ([^\s]+) ([^\s]+)$/) {
+      my $scc=$1; my $scv=$2; my $scs=0;
+      if(($scc eq 'nick')||($scc eq 'ident')){
+        if(!defined $NICKIDENT->{$PORT}){
+          $NICKIDENT->{$PORT}={$scc=>$scv};
+        } else {
+          $NICKIDENT->{$PORT}{$scc}=$scv;
+        }
+        gfio::create("nickident.chat",encode_json($NICKIDENT))
+      }
     }
 
   } elsif ($command eq 'error') {
@@ -542,7 +561,7 @@ sub handle {
     push @out,"Server: FCC-Private Wallet Server 1.0";
     push @out,"Date: ".fcctimestring();
     if ($uri eq '/') {
-      burstfile($client,'wallet.htm','text/html',0,@out);
+      burstfile($client,'wallet.htm','text/html',1,@out);
     } elsif ($uri eq '/wallet.js') {
       burstfile($client,'wallet.js','text/javascript',1,@out);
     } elsif ($uri eq '/wallet.css') {
@@ -573,6 +592,16 @@ sub burstfile {
 sub filtervars {
   my($data)=@_;
   $data =~ s/\$PORT/$PORT/gs;
+  if(defined $NICKIDENT->{$PORT} && defined $NICKIDENT->{$PORT}{nick}) {
+    $data =~ s/\$NICK/$NICKIDENT->{$PORT}{nick}/gs;
+  } else {
+    $data =~ s/\$NICK//gs;
+  }
+  if (defined $NICKIDENT->{$PORT} && defined $NICKIDENT->{$PORT}{ident}) {
+    $data =~ s/\$IDENT/$NICKIDENT->{$PORT}{ident}/gs;
+  } else {
+    $data =~ s/\$IDENT//gs;
+  }
   return $data
 }
 
@@ -590,11 +619,17 @@ sub handlecall {
   if (!$client->{fcc} || !$client->{fcc}{leafid} || !$leaf->{leafid}) { return }
   if ($client->{fcc}{leafid} == $leaf->{leafid}) {
     if ($command eq 'error') {
-      print "Error '$data->{message}': $data->{error}\n";
-      status($client,"<span style=\"color: red; font-weight: bold\">Error '$data->{message}': $data->{error}</span>");
+      if(ref($data) eq 'HASH' && $data->{message} && $data->{error}){
+        print "Error '$data->{message}': $data->{error}\n";
+        status($client,"<span style=\"color: red; font-weight: bold\">Error '$data->{message}': $data->{error}</span>");
+      }else{
+        print "Error '$data'\n";
+      }
       $client->{fcc}{connectnode}=1;
       refreshnodelist();
     } elsif (($command eq 'disconnect') || ($command eq 'terminated')) {
+      $MINERDISCON=1;
+      $MINING=0;
       status($client,"<span style=\"color: red; font-weight: bold\">Disconnected from node.. Reconnecting to the FCC-core..</span>");
       $client->{fcc}{connectnode}=1;
       refreshnodelist();
@@ -634,13 +669,15 @@ sub slaveminercall {
   if ($command eq 'error') {
     print "Miner Error '$data->{message}': $data->{error}\n";
     wsmessage($leaf->{client},"miner <span style=\"color: red; font-weight: bold\">Error '$data->{message}': $data->{error}</span>");
-    wsmessage($leaf->{client},"minerstop");
+#    wsmessage($leaf->{client},"minerstop");
+    $MINERDISCON=1;
     $MINING=0
   } elsif (($command eq 'disconnect') || ($command eq 'terminated')) {
     if ($MINING) {
       print "Miner Stopped '$data->{message}': $data->{error}\n";
       wsmessage($leaf->{client},"miner <span style=\"color: red; font-weight: bold\">Terminated '$data->{message}': $data->{error}</span>");
-      wsmessage($leaf->{client},"minerstop");
+#      wsmessage($leaf->{client},"minerstop");
+      $MINERDISCON=1;
       $MINING=0
     }
   }

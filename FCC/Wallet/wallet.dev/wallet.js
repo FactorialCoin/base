@@ -10,6 +10,7 @@
   var wins=0;
   var lost=0;
   var mtime=Date.now()/1000;
+  var miningwallet;
 
   function chatout(txt) {
     var st=document.getElementById('status');
@@ -30,7 +31,7 @@
       if(solutionFound) solutionFound=0;
       else{
         var st=document.getElementById('mineoutput');
-        st.innerHTML += "<br> Lost Last one :-/ " + txt;
+        st.innerHTML += "<br><font color='red'> Lost This Round :-/ </font>";
         lost++;
         addStat(0);
         wininfo();
@@ -64,6 +65,7 @@
     }
   }
 
+var discon=0;
   function connect() {
     if ("WebSocket" in window) {
       chatout("** WebSockets supported ..<br />** Opening WebSocket on " + wserver + " ..");
@@ -87,6 +89,14 @@
       var target=ml.shift(); var arg=ml[0]; var par=ml[1]; var txt=ml.join(" ");
       if (target == 'status') {
       	chatout(txt)
+        if(txt.indexOf("Disconnected from node") !== -1){
+          discon=1
+        }
+        if (discon && txt.indexOf("Connected to node") !== -1 && miningwallet){
+          discon=0;
+          chatout('* Restarting miner for wallet '+miningwallet+'.');
+          startminer(miningwallet);
+        } 
       }
       else if (target == 'miner') {
         mineout(txt)
@@ -99,10 +109,11 @@
           " Reward = "+msg.data.reward+
           " Len = "+msg.data.length+
           " Hints = "+msg.data.hints;
-        mineout('Already running Miner attached');
+        mineout('Already running attached Miner');
         if(mnh==null||mnh > msg.size[0]) mnh=msg.size[0];
         if(mxh==null||mxh < msg.size[1]) mxh=msg.size[1];
         startminer(msg.wallet);
+        miningwallet=msg.wallet;
       }
       else if (target == 'node') {
       	setnode(arg)
@@ -123,7 +134,8 @@
       }
       else if (target == 'addwallet') {
       	var wallet=ml.shift(); var name=ml.join(" ");
-      	addwallet(wallet,name)
+      	addwallet(wallet,name);
+        activatewallet(wallet);
       }
       else if (target == 'actwal') {
       	activatewallet(arg)
@@ -170,6 +182,12 @@
   }
   function powerDownWallet(){
     socket.send('powerdown');
+  }
+  function savechatnick(nick){
+    socket.send('savechat nick '+nick);
+  }
+  function savechatident(ident){
+    socket.send('savechat ident '+ident);
   }
   function gorefresh() {
   	document.getElementById('graybg').style.visibility='visible';
@@ -240,23 +258,34 @@
   	document.getElementById('node').innerHTML="Node: " + node;
   }
   function addwallet(wallet,name) {
-  	var obj=document.createElement("DIV");
-  	obj.id='W' + wallet;
-  	obj.classList.add("iwal");
-  	obj.classList.add("muis");
-  	obj.innerHTML=(name != "" ? name + " (" + wallet + ")" : wallet);
-  	obj.addEventListener("click",function() { activatewallet(this.id.substring(1)) },false);
-  	document.getElementById("wallets").appendChild(obj);
-  	// lol : (in dO addInnerObject) var o=aIo('wallets','W'+wallet,'DIV',{class=>"iwal muis",onclick=>function(){activatewallet(this.id.substring(1))}});
-  	// of createObject : var o=cO('W'+wallet,'DIV',{class=>"iwal muis",onclick=>function(){activatewallet(this.id.substring(1))}});
-  	// dO is future voor general functional short dynamicObject js language. Plug and Play functionalities. 
+    var wal=document.createElement("DIV");
+    wal.id='R' + wallet;
+    wal.classList.add("rwal");
+    document.getElementById("wallets").appendChild(wal);
+    
+    var obj=document.createElement("DIV");
+    obj.id='W' + wallet;
+    obj.classList.add("iwal");
+    obj.classList.add("muis");
+    obj.innerHTML=(name != "" ? name + " (" + wallet + ")" : wallet);
+    obj.addEventListener("click",function() { activatewallet(this.id.substring(1)) },false);
+    wal.appendChild(obj);
+
+    var obj=document.createElement("IMG");
+    obj.id='C' + wallet;
+    obj.src="image/clipboard.png";
+    obj.width='32px';
+    obj.classList.add("cwal");
+    obj.classList.add("muis");
+    obj.addEventListener("click",function() { copywal(this.id.substring(1)) },false);
+    wal.appendChild(obj);
+
   	wallets[wallet]=name
   }
   function activatewallet(wallet) {
   	document.getElementById("wallet").innerHTML=wallet;
   	document.getElementById("from").innerHTML="[ no name ] (" + wallet + ")";
   	document.getElementById("walname").style.visibility='visible';
-	  document.getElementById("fcc").style.visibility='visible';
 	  document.getElementById("copywallet").style.visibility='visible';
 	  document.getElementById("savewalbut").style.visibility='visible';
     if (activewallet != "") {
@@ -281,13 +310,13 @@
     cwo.selectedIndex=0;
     var wl=document.getElementById("wallets").children;
     for (i=1;i<wl.length;i++) {
-    	if (wl[i].id != wobj) {
+    	if (wl[i].id.substr(1) != wallet) {
       	var cho=document.createElement("OPTION");
         cho.value=wl[i].id.substr(1);
-        cho.text=wl[i].innerHTML;
+        cho.text=wl[i].id.substr(1);
         cwo.add(cho);
     	} else {
-    		cwo.options[0].text=wl[i].innerHTML;
+    		cwo.options[0].text=wl[i].id.substr(1);
     	}
     }
   	activewallet=wobj
@@ -306,14 +335,24 @@
   	socket.send("createwallet")
   }
   function openchat() {
-  	document.getElementById('openchat').style.display='none';
-  	var obj=document.createElement("IFRAME");
-  	obj.id='chatframe';
-  	obj.src="http://chat.lichtsnel.nl?channel=crypto";
-  	obj.style.width="100%";
-  	obj.style.height="100%";
-  	obj.scrolling="no";
-  	document.getElementById('chatcont').appendChild(obj)
+    var obj=document.getElementById('chatframe');
+    var n=document.getElementById('chatnick').value;
+    var p=document.getElementById('identpass').value;
+    var c="http://chat.lichtsnel.nl?channel=crypto" + ( n ? '&autologin=1&nick='+escape(n)+( p ? '&pass='+escape(p) : '') : '');
+    if (obj) {
+      if(confirm('Reopen the Chat Window?')){
+        obj.src=c;
+      }
+    } else {
+      document.getElementById('openchat').innerHTML='Reopen Chatbox';
+      obj=document.createElement("IFRAME");
+      obj.id='chatframe';
+      obj.src=c;
+      obj.style.width="100%";
+      obj.style.height="100%";
+      obj.scrolling="no";
+      document.getElementById('chatcont').appendChild(obj)
+    }
   }
   function savewalname() {
   	var name=document.getElementById("walname").value;
@@ -325,8 +364,8 @@
   	var wid="W" + wallet;
   	document.getElementById(wid).innerHTML=name + " (" +wallet + ")";
   }
-  function copywal() {
-  	var txt=document.getElementById("wallet").innerHTML;
+  function copywal(w) {
+  	var txt=w||document.getElementById("wallet").innerHTML;
   	if (window.clipboardData && window.clipboardData.setData) {
       // IE specific code path to prevent textarea being shown while dialog is visible.
       clipboardData.setData("Text", txt);
@@ -339,14 +378,14 @@
       textarea.select();
       try {
         document.execCommand("copy");  // Security exception may be thrown by some browsers.
-    	  document.getElementById("copied").innerHTML="Wallet address copied to clipboard";
+    	  document.getElementById("copied").innerHTML="Wallet address [ "+txt+" ] copied to clipboard";
       } catch (ex) {
     	  document.getElementById("copied").innerHTML="NOT copied. " + ex;
       } finally {
         document.body.removeChild(textarea);
       }
     }
-  	window.setTimeout(function(){ document.getElementById("copied").innerHTML="";},1500)
+  	window.setTimeout(function(){ document.getElementById("copied").innerHTML="";},1750)
   }
   function showdelwal(balance) {
   	if (balance == '0.00000000') {
@@ -361,20 +400,18 @@
   		var wallet=getwallet();
   		socket.send('delwallet ' + wallet);
   	  document.getElementById("delwalbut").style.visibility='hidden';
-  	  document.getElementById("fcc").style.visibility='hidden';
   	  document.getElementById("copywallet").style.visibility='hidden';
   	  document.getElementById("savewalbut").style.visibility='hidden';
   	  document.getElementById("wallet").innerHTML="[none]";
   	  document.getElementById("from").innerHTML="[none]";
     	document.getElementById("walname").style.visibility='hidden';
   	  document.getElementById("balance").innerHTML="";
-  	  var obj=document.getElementById("W" + wallet);
+  	  var obj=document.getElementById("R" + wallet);
     	document.getElementById("wallets").removeChild(obj);
     	activewallet="";
     	var wlist=document.getElementById("wallets").children;
     	if (wlist.length>1) {
-    		var wid=wlist[1].id;
-        activatewallet(wid.substr(1))
+        activatewallet(wlist[1].id.substr(1))
       }
   	}
   }
@@ -385,7 +422,8 @@
     document.getElementById('stopminer').style.visibility='visible';
     document.getElementById('pickaxe').style.display='inline-block';
     document.getElementById('minewins').style.display='inline-block';
-    mineout('Miner started!');
+    mineout('Started Miner on '+wallet.substr(0,16)+'... !');
+    miningwallet=wallet;
     socket.send('startminer ' + wallet)
   }
   function stopminer() {
@@ -652,9 +690,9 @@
     var ctx=document.getElementById('minecanvas').getContext('2d');
     if(c){
       ctx.fillStyle=c;
-      ctx.fillRect(0,0,500,100);
+      ctx.fillRect(0,0,1000,100);
     }else{
-      ctx.clearRect(0,0,500,100);
+      ctx.clearRect(0,0,1000,100);
     }
   }
 
@@ -674,7 +712,7 @@
   }
   
   function truncStat(){
-    while(mineStat.length>500) mineStat.shift();
+    while(mineStat.length>1000) mineStat.shift();
   }
   
   function drawSpeed(speed){
@@ -694,7 +732,7 @@
     var ctx=document.getElementById('minecanvas').getContext('2d');
     var l,t,c;
     for(var i=1,j=mineStat.length-1;i<=mineStat.length;i++,j--){
-      l=500-i;
+      l=1000-i;
       t=90 - (mineStat[j][1] == undefined ? 100 : ((80/dist)*(mineStat[j][0]-mnh)) );
       c=(255/100)*t;
       var col = mineStat[j][1] == undefined ? mineStat[j][0] ? 'lime' : 'red' : "rgb("+Math.round(255-c)+","+Math.round(127-(c/2))+","+Math.round(127+(c/2))+")";

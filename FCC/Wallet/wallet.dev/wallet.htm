@@ -55,73 +55,78 @@
         onclick="if(confirm('Click Ok to confirm you want to close down your wallet / miner')) powerDownWallet()"
       ><img id="powerimage" src="image/powerdown.png" height="64" class="muis" onclick="powerdown()" title="Powerdown the Wallet and Miner" /></div>
 
-      <img id="fcclogo" src="image/fcclogo.png" height="78" />
+      <img id="fcclogo" src="image/fcclogo.png" />
+
+      <div id="miner">
+        <div id="minecanv">
+          <canvas id="minecanvas" width="1000" height="100"></canvas>
+          <img id="pickaxe" src="image/pickaxe.gif" />
+          <div id="minespeed"></div>
+        </div>
+        <img id="startminer" class="muis" onclick="startminer()" src="image/start.png" title="Start Miner on Current Selected Wallet" />
+        <img id="stopminer" class="muis" onclick="stopminer()" src="image/pause.png" title="Stop Mining" />
+        <div id="minewallet"></div>
+        <div id="minediff"></div>
+        <div id="mineoutput">Miner inactive</div>
+        <div id="minewins">Winnings..</div>
+      </div>
 
       <div id="activefront">
         <div id="wallet"></div>
         <img id="fcc" src="image/fccico.png" height="36" />
         <div id="balance"></div>
-        <input id="walname" class="ival" autocomplete="off" onkeydown="checksubmit(event,'savewalbut')" onchange="savewalname()" />
-        <img id="savewalbut" src="image/save.png" height="42" class="muis" title="Save Wallet Name" />
+        <div id="walnamediv">
+          <input id="walname" class="ival" autocomplete="off" onkeydown="checksubmit(event,'savewalbut')" onchange="savewalname()" title="Edit Wallet Name" />
+        </div>
+        <img id="savewalbut" src="image/save.png" class="muis" title="Save Wallet Name" />
         <img id="copywallet" src="image/clipboard.png" class="muis" onclick="copywal()" title="Copy Wallet Address to Clipboard" />
         <div id="copied"></div>
-        <div id="delwalbut" class="selbut redbut muis" onclick="delwal()">Delete wallet</div>
-      </div>
-      
-      <div id="miner">
-        <div id="minecanv">
-          <canvas id="minecanvas" width="500" height="100"></canvas>
-          <div id="minespeed"></div>
-        </div>
-        <img id="startminer" class="muis" onclick="startminer()" src="image/start.png" />
-        <img id="stopminer" class="muis" onclick="stopminer()" src="image/pause.png" />
-        <div id="minewallet"></div>
-        <div id="minediff"></div>
-        <div id="mineoutput">Miner inactive</div>
-        <div id="minewins">Winnings..</div>
-        <img id="pickaxe" src="image/pickaxe.gif" />
+        <img id="delwalbut" class="muis" onclick="delwal()" src="image/del.png" />
       </div>
 
     </div>
     
     <div id="winleft">
-      <div id="wallets">Your wallets<div class="space"></div></div>
-      <div id="trans">
-        Create a transaction
-    	<div id="transbox">
-	  <div class="tfnt" style="top: 13px;">From</div>
-	  <div id="from"></div>
-	  <div class="tfnt" style="top: 43px;">Amount</div>
-	  <input id="amount" onfocus="document.getElementById('amount').select()" onkeyup="checkdigit(event,'amount',1)" value="0.00000000" />
-	  <div class="tfnt" style="left: 215px; width: 40px; top: 43px;">Fee</div>
-  	  <input id="fee" onfocus="document.getElementById('fee').select()" onkeyup="checkdigit(event,'fee',1)" value="0.5" />
-  	  <div class="tfnt" style="left: 325px; top: 43px; width: 12px">%</div>
- 	  <div class="tfnt" style="top: 73px;">To</div>
-	  <input id="to" onfocus="document.getElementById('to').select()" onkeyup="checkhex(event,'to')" onpaste="checkhexpaste('to')" />
-	  <select id="adrbook" class="adrbook" onchange="setadrbook()" title="Select from Addressbook"><option value="" selected>Select</option></select>
-  	  <input id="newadrbook" onkeydown="checksubmit(event,'saveadrbook')" />
-	  <img id="saveadrbook" src="image/save.png" height="38" class="muis" onclick="saveadrbook()" title="Save to Addressbook" />
-	  <div id="transerr" style="border:solid 1px gray;" /></div>
-	  <div id="addtransbut" class="selbut bluebut muis" onclick="addtrans()">Add Transaction</div>
-	  <div id="transoutbox"></div>
-	  <div class="tfnt" style="width: 170px; bottom: 40px;">Wallet for change</div>
-	  <select id="change"></select>
-	  <img id="ttot" src="image/fccico.png" height="24" />
-	  <div id="transtotal">0.00000000</div>
-	  <div id="transbut" onclick="transfer()" class="selbut greenbut muis">Transfer</div>
-    	</div>
-      </div>
+      <div id="transwallets" class="abovebut selectbut" onclick="yourwallets()">Wallets</div>
+      <div id="transcontacts" class="abovebut muis" onclick="adrbookinterface()">Contacts</div>
       <div id="create" class="belowbut muis" onclick="createwallet()">Create new wallet</div>
-      <div id="passprotect" class="belowbut muis" onclick="passprotect()">Password Protect</div>
-      <div id="adrbookselect" class="belowbut muis" onclick="adrbookinterface()">Addressbook</div>
-      <div id="status">Welcome to FCC Private Wallet v1.0</div>
+      <div id="passprotect" class="abovebut muis" onclick="passprotect()">Set Password</div>
+      <div id="createatrans" class="bottombut selectbut" onclick="createatrans()">Transactions</div>
+      <div id="wallets"><div class="space"></div></div>
+      <div id="trans">
+    	  <div id="transbox">
+	        <div class="tfnt" style="top: 3px;">From</div>
+	        <div id="from"></div>
+	        <div class="tfnt" style="top: 43px;">Amount</div>
+	        <input id="amount" onfocus="document.getElementById('amount').select()" onkeyup="checkdigit(event,'amount',1)" value="0.00000000" />
+	        <div class="tfnt" style="left: 140px; width: 40px; top: 43px;">Fee</div>
+  	      <input id="fee" onfocus="document.getElementById('fee').select()" onkeyup="checkdigit(event,'fee',1)" value="0.5" />
+  	      <div class="tfnt" style="left: 200px; top: 66px; width: 12px">%</div>
+ 	        <div class="tfnt" style="top: 93px;">To</div>
+	        <input id="to" onfocus="document.getElementById('to').select()" onkeyup="checkhex(event,'to')" onpaste="checkhexpaste('to')" />
+	        <select id="adrbook" class="adrbook" onchange="setadrbook()" title="Select from Addressbook"><option value="" selected>Select</option></select>
+  	      <input id="newadrbook" onkeydown="checksubmit(event,'saveadrbook')" />
+	        <img id="saveadrbook" src="image/save.png" height="38" class="muis" onclick="saveadrbook()" title="Save to Addressbook" />
+          <div id="addtransbut" class="selbut bluebut muis" onclick="addtrans()">Add Transaction</div>
+	        <div id="transerr"></div>
+	        <div id="transoutbox"></div>
+	        <div class="tfnt" style="width: 170px; bottom: 40px;">Wallet for change</div>
+	        <select id="change"></select>
+	        <img id="ttot" src="image/fccico.png" height="24" />
+	        <div id="transtotal">0.00000000</div>
+	        <div id="transbut" onclick="transfer()" class="selbut greenbut muis"> &nbsp;Transfer &#x2192;</div>
+    	  </div>
+      </div>
     </div>
 
     <div id="winright">
+      <div id="openchat" class="abovebut selectbut muis" onclick="openchat()">Open Chatbox</div>
+      <input id="chatnick" type="text" class="abovebut selectbut" value="$NICK" onchange="savechatnick(this.value)" placeholder="Chatnick" title="Enter default Chatnick" />
+      <input id="identpass" type="password" class="abovebut selectbut" value="$IDENT" onchange="savechatident(this.value)" placeholder="Identify" title="Enter default Identify Password (register your nick first with NickServ to claim your nickname)" />
       <div id="chat">
         <div id="chatcont" class="cont"></div>
-        <div id="openchat" class="selbut greenbut muis" onclick="openchat()">Open Chatbox</div>
       </div>
+      <div id="status">Welcome to FCC Private Wallet v1.0</div>
     </div>
     
     <div id="passbox" class="centbox loginbox">
