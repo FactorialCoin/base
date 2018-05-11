@@ -27,7 +27,22 @@
     if ((/New challenge:/gi).test(txt)) {
       mtime=Date.now()/1000;
       var sd=document.getElementById('minediff');
-      sd.innerHTML = txt.replace('New challenge: ','');
+      var arg = txt.replace('New challenge: ','').split(' ');
+      var cha={
+        coin: arg[2],
+        diff: arg[5],
+        rewa: arg[8],
+        leng: arg[11],
+        hint: arg[14]
+      };
+      sd.innerHTML =
+      '<table width=100% cellspacing=0 cellpadding=0 border=0>'+
+        '<tr><th align=right>Coincount:</th><th align=right>'+cha.coin+'</th></tr>'+
+        '<tr><th align=right>Difficulty:</th><th align=right>'+cha.diff+'</th></tr>'+
+        '<tr><th align=right>Reward:</th><th align=right>'+cha.rewa+'</th></tr>'+
+        '<tr><th align=right>Length:</th><th align=right>'+cha.leng+'</th></tr>'+
+        '<tr><th align=right>Hints:</th><th align=right>'+cha.hint+'</th></tr>'+
+      '</table>';
       if(solutionFound) solutionFound=0;
       else{
         var st=document.getElementById('mineoutput');
@@ -103,12 +118,14 @@ var discon=0;
       }
       else if (target == 'mining') {
         var msg;try{eval('msg='+txt);}catch(e){alert(e);return};
-        document.getElementById('minediff').innerHTML = 
-          "Coincount = "+msg.data.coincount+
+        mineout(
+          "New challenge:"+
+          " Coincount = "+msg.data.coincount+
           " Difficulty = "+msg.data.diff+
           " Reward = "+msg.data.reward+
           " Len = "+msg.data.length+
-          " Hints = "+msg.data.hints;
+          " Hints = "+msg.data.hints
+        );
         mineout('Already running attached Miner');
         if(mnh==null||mnh > msg.size[0]) mnh=msg.size[0];
         if(mxh==null||mxh < msg.size[1]) mxh=msg.size[1];

@@ -308,11 +308,11 @@
 
   #minewallet {
   	position: absolute;
-  	left: 78px; top: 54px;
+  	left: 78px; top: 56px;
     right: 0px; height:22px;
     overflow: hidden;
-  	font-family: "Lucida Console";
-  	font-size: 11px;
+  	font-family: Courier New;
+  	font-size: 10px;
     line-height: 11px;
     font-weight: bolder;
     padding:3px;
@@ -320,11 +320,15 @@
   }
   #minediff {
   	position: absolute;
-  	left: 80px; top: 4px;
-  	font-family: "Lucida Console";
-  	font-size: 10px;
-  	font-weight: bolder;
+  	left: 378px; top: 6px; width:134px; bottom: 23px;
+    padding:1px 8px;
+  	font-family: Courier New;
+  	font-size: 9px;
+    line-height: 10px;
+    font-weight: bolder;
   	color: #606030;
+    background:white;
+    border: 1px solid black
   }
   #minewins {
   	position: absolute;
@@ -347,7 +351,7 @@
   }
   #mineoutput {
   	position: absolute;
-  	left: 80px; top: 16px; bottom: 25px; width: 438px;
+  	left: 80px; top: 6px; bottom: 23px; width: 288px;
   	margin: auto;
   	overflow: auto;
   	padding: 3px;
