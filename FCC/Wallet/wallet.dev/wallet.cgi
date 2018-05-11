@@ -148,10 +148,10 @@ sub loopclient {
             print "Opening Node Connection\n";
             $MINER=startleaf($client->{fcc}{leafip},$client->{fcc}{leafport},\&slaveminercall,0,1);
           }
-          $MINER->{client}=$client;
           if ($MINER->{error}) {
             print " ! Error starting miner - $MINER->{error}\n"
           } else {
+            $MINER->{client}=$client;
             print " * Miner sucessfully started .. may the FCC be with you ;)\n"
           }
         }
@@ -188,6 +188,7 @@ sub serverloop {
       my $done=$MINEDATA->{hashtot}+=$MINEDATA->{fhash};
       $done=int (10000 * $done / $MINEDATA->{diff}) / 100;
       if ($MINER->{client}) { wsmessage($MINER->{client},"miner Speed: $hr Fhash/sec ($done %)") }
+      print " Speed: $hr Fhash/sec ($done %) $MINER->{client} \r";
       $MINEDATA->{fhash}=0
     }
   }
@@ -210,6 +211,7 @@ sub challenge {
     $MINEDATA->{hintpos}=0;
     $MINEDATA->{tryhint}=substr($MINEDATA->{hints},0,1);
     if ($MINER->{client}) { wsmessage($MINER->{client},"miner Trying suggestion $MINEDATA->{tryhint}") }
+    print " * Trying suggestion $MINEDATA->{tryhint}     \n";
   } else {
     $MINEDATA->{tryhint}=""
   }
@@ -243,6 +245,7 @@ sub mineloop {
     if ($MINEDATA->{hintpos} < length($MINEDATA->{hints})) {
       $MINEDATA->{tryhint}=substr($MINEDATA->{hints},$MINEDATA->{hintpos},1);
       if ($MINER->{client}) { wsmessage($MINER->{client},"miner Trying suggestion: $MINEDATA->{tryhint}") }
+      print " * Trying suggestion: $MINEDATA->{tryhint}   \n";
       $MINEDATA->{tryinit}="";
       for (my $i=0;$i<$MINEDATA->{length};$i++) {
         if ($MINEDATA->{tryhint} ne chr(65+$i)) {
@@ -251,7 +254,7 @@ sub mineloop {
       }
     } else {
       print "Error.. mined all possibilities\n";
-      wsmessage($MINER->{client},"miner Error.. mined all possibilities :-(")
+      if ($MINER->{client}) { wsmessage($MINER->{client},"miner Error.. mined all possibilities :-(") }
     }
   }
 }
@@ -682,11 +685,13 @@ sub slaveminercall {
     }
   }
   if ($command eq 'mine') {
-    if ($data->{coincount} > $MINEDATA->{coincount}) {
+    print "miner New challenge: Coincount = $data->{coincount} Difficulty = $data->{diff} Reward = $data->{reward} Len = $data->{length} Hints = $data->{hints}\n";
+    if (!$MINING || ($data->{coincount} > $MINEDATA->{coincount})) {
       if ($MINER->{client}) { wsmessage($MINER->{client},"miner New challenge: Coincount = $data->{coincount} Difficulty = $data->{diff} Reward = $data->{reward} Len = $data->{length} Hints = $data->{hints}") }
       challenge($data);
     }
   } elsif ($command eq 'solution') {
+    print " *** Found solution!! Earned FCC ".extdec($MINEDATA->{reward} / 100000000)." ***\n";
     if ($MINER->{client}) {
       wsmessage($MINER->{client},"miner <span style=\"color: darkgreen; font-weight: bold\">Found solution!! Earned FCC ".extdec($MINEDATA->{reward} / 100000000)."</span>");
       my $ctm=gettimeofday();
