@@ -149,7 +149,7 @@
   
   #powerbutton {
   	position: absolute;
-  	left: 6px; top: 6px; width: 64px; height: 64px;
+  	right: 6px; top: 6px; width: 64px; height: 64px;
    	margin: auto;
   	overflow: hidden;
   	background: rgba(255,0,0,0.5);
@@ -265,7 +265,7 @@
 
   #miner {
   	position: absolute;
-    left: 96px; top: 6px; right: 6px; height: 82px;
+    left: 6px; top: 6px; right: 96px; height: 82px;
    	margin: auto;
   	overflow: auto hidden;
   	padding: 0;
