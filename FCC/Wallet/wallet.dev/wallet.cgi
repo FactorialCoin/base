@@ -1,7 +1,6 @@
 #!/usr/bin/perl
 
 # FCC Local Wallet Server
-use lib qw(../modules);
 use strict;
 no strict 'refs';
 use warnings;
