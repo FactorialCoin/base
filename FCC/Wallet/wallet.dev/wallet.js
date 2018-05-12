@@ -195,7 +195,8 @@ var discon=0;
     }
   }
   function start() {
-  	connect()
+  	connect();
+    $AUTOSTART
   }
   function powerDownWallet(){
     socket.send('powerdown');
@@ -205,6 +206,9 @@ var discon=0;
   }
   function savechatident(ident){
     socket.send('savechat ident '+ident);
+  }
+  function savechatauto(checked){
+    socket.send('savechat auto '+(checked?"1":"0"));
   }
   function gorefresh() {
   	document.getElementById('graybg').style.visibility='visible';

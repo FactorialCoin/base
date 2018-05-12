@@ -803,18 +803,22 @@
 
   #openchat {
     position: absolute;
-    right: 10px; top: 0px; width: 140px;
+    left: 10px; top: 0px; width: 150px;
+  }
+  #chatauto {
+    position: absolute;
+    left: 17px; top: 6px;
   }
   #chatnick {
     position: absolute;
-    left: 10px; top: 0px; width: 100px;
+    left: 190px; top: 0px; width: 100px;
     cursor:text;
     background: white;
     color:black;
   }
   #identpass {
     position: absolute;
-    left: 135px; top: 0px; width: 100px;
+    left: 320px; top: 0px; width: 100px;
     cursor:text;
     background: white;
     color:black;

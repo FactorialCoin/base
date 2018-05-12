@@ -1,6 +1,7 @@
 #!/usr/bin/perl
 
 # FCC Local Wallet Server
+#use lib qw(../modules);
 use strict;
 no strict 'refs';
 use warnings;
@@ -18,7 +19,7 @@ use JSON;
 
 ###### Use this to force connecting to trusted nodes ###########################
 
-my $TRUSTEDNODES=-e "trusted.nodes" ? decode_json(gfio::content("trusted.nodes")) : [];
+my $TRUSTEDNODES=(-e "trusted.nodes" ? decode_json(gfio::content("trusted.nodes")) : []);
 my $FORCENODE; if($#$TRUSTEDNODES>-1){ $FORCENODE=$TRUSTEDNODES->[int(rand()*(1+$#$TRUSTEDNODES))] }
 
 ######################################################
@@ -533,7 +534,7 @@ sub handle {
       $POWERDOWN=1;
     } elsif ($data =~ /^savechat ([^\s]+) ([^\s]+)$/) {
       my $scc=$1; my $scv=$2; my $scs=0;
-      if(($scc eq 'nick')||($scc eq 'ident')){
+      if(($scc eq 'nick')||($scc eq 'ident')||($scc eq 'auto')){
         if(!defined $NICKIDENT->{$PORT}){
           $NICKIDENT->{$PORT}={$scc=>$scv};
         } else {
@@ -604,6 +605,14 @@ sub filtervars {
   } else {
     $data =~ s/\$IDENT//gs;
   }
+  if (defined $NICKIDENT->{$PORT} && $NICKIDENT->{$PORT}{auto}) {
+    $data =~ s/\$AUTOSTART/openchat();/gs;
+    $data =~ s/\$CHATAUTO/checked/gs;
+  } else {
+    $data =~ s/\$AUTOSTART//gs;
+    $data =~ s/\$CHATAUTO//gs;
+  }
+
   return $data
 }
 

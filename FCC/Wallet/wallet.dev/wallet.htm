@@ -121,6 +121,7 @@
 
     <div id="winright">
       <div id="openchat" class="abovebut selectbut muis" onclick="openchat()">Open Chatbox</div>
+      <input id="chatauto" type="checkbox" onclick="savechatauto(this.checked)" title="Open on startup and reloads." $CHATAUTO />
       <input id="chatnick" type="text" class="abovebut selectbut" value="$NICK" onchange="savechatnick(this.value)" placeholder="Chatnick" title="Enter default Chatnick" />
       <input id="identpass" type="password" class="abovebut selectbut" value="$IDENT" onchange="savechatident(this.value)" placeholder="Identify" title="Enter default Identify Password (register your nick first with NickServ to claim your nickname)" />
       <div id="chat">
