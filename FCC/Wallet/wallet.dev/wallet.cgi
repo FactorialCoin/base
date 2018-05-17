@@ -18,14 +18,78 @@ use FCC::leaf 2.01 qw(startleaf leafloop closeleaf);
 use gerr qw(error);
 use JSON;
 
-my $VERSION = "010102";
+my $DEBUG = 1;
+my $INIT = 0;
+my $SERVER;
+my $POOL;
+my $WEBSITEINIT=0;
+my $FCCSERVER='https://'. $FCCSERVERIP.':'.$FCCSERVERPORT;
+my @NODES=(); my $NODENR=0; my $WLIST=[]; my $PASS;
+my $TRANSCOUNT = 0;
+my $MINER;
+my $MINING=0;
+my $MINEDATA={ coincount => 0 };
+my $MINFHASH=undef;
+my $MAXFHASH=undef;
+my $MINERWALLET="";
+my $POWERDOWN=0;
+my $MINERDISCON=0;
+
+my $VERSION = "010103";
+
+################################################################################
+###### Use the file trusted.nodes to force connecting to trusted nodes #########
+
+my $TRUSTEDNODES=(-e "trusted.nodes" ? decode_json(gfio::content("trusted.nodes")) : []);
+my $FORCENODE; if($#$TRUSTEDNODES>-1){ $FORCENODE=$TRUSTEDNODES->[int(rand()*(1+$#$TRUSTEDNODES))] }
+
+################################################################################
+# Local Wallet Listen Port
+my $PORT =
+  $ARGV[0] && $ARGV[0] =~ /[0-9]+/ ? $ARGV[0] : 
+  -e "wallet.port" ? gfio::content("wallet.port") : 
+  5115;
+################################################################################
+# Local Wallet Chat Nick & Ident
+my $NICKIDENT;
+if (-e "nickident.chat") {
+  $NICKIDENT=decode_json(gfio::content("nickident.chat"));
+} else {
+  $NICKIDENT={}
+}
+################################################################################
+
+################################################################################
+# Signaling 
+
+$SIG{'INT'}=\&intquit;
+$SIG{'TERM'}=\&termquit;
+$SIG{'PIPE'}=\&sockquit;
+$SIG{__DIE__}=\&fatal;
+$SIG{__WARN__}=\&fatal;
+
 versionCheck();
 
 ################################################################################
+
+sub fatal {
+  print "!!!! FATAL ERROR !!!!\n",@_,"\n";
+  killserver("Fatal Error",1); error(@_)
+}
+sub intquit {
+  killserver('130 Interrupt signal received'); exit
+}  
+sub termquit {
+  killserver('108 Client forcably killed connection'); exit
+}
+sub sockquit {
+  killserver("32 TCP/IP Connection error"); exit
+}
+
 ###### Development Wallet Updater by SkyDrive & OnEhIppY #######################
 
 sub versionCheck {
-  my $github={base => "https://raw.githubusercontent.com/FactorialCoin/base/tree/master"};
+  my $github={base => "https://raw.githubusercontent.com/FactorialCoin/base/master"};
   $github->{dev}="$github->{base}/FCC/Wallet/wallet.dev";
   my $fil = ['wallet.cgi','wallet.js','wallet.htm','wallet.css','image/clipboard.png','image/del.png','image/favicon-16.png','image/favicon-32.png','image/fccico.png','image/fcclogo.png','image/pause.png','image/pickaxe.gif','image/powerdown.png','image/save.png','image/start.png'];
   my $fccversion = get("$github->{base}/version.txt"); $fccversion=~s/[^0-9]//gs;
@@ -80,62 +144,6 @@ sub get {
 }
 
 ################################################################################
-###### Use the file trusted.nodes to force connecting to trusted nodes #########
-
-my $TRUSTEDNODES=(-e "trusted.nodes" ? decode_json(gfio::content("trusted.nodes")) : []);
-my $FORCENODE; if($#$TRUSTEDNODES>-1){ $FORCENODE=$TRUSTEDNODES->[int(rand()*(1+$#$TRUSTEDNODES))] }
-
-######################################################
-# Local Wallet Listen Port
-my $PORT =
-  $ARGV[0] && $ARGV[0] =~ /[0-9]+/ ? $ARGV[0] : 
-  -e "wallet.port" ? gfio::content("wallet.port") : 
-  5115;
-# Local Wallet Chat Nick & Ident
-my $NICKIDENT;
-if (-e "nickident.chat") {
-  $NICKIDENT=decode_json(gfio::content("nickident.chat"));
-} else {
-  $NICKIDENT={}
-}
-######################################################
-
-my $DEBUG = 1;
-my $INIT = 0;
-my $SERVER;
-my $POOL;
-my $WEBSITEINIT=0;
-my $FCCSERVER='https://'. $FCCSERVERIP.':'.$FCCSERVERPORT;
-my @NODES=(); my $NODENR=0; my $WLIST=[]; my $PASS;
-my $TRANSCOUNT = 0;
-my $MINER;
-my $MINING=0;
-my $MINEDATA={ coincount => 0 };
-my $MINFHASH=undef;
-my $MAXFHASH=undef;
-my $MINERWALLET="";
-my $POWERDOWN=0;
-my $MINERDISCON=0;
-
-$SIG{'INT'}=\&intquit;
-$SIG{'TERM'}=\&termquit;
-$SIG{'PIPE'}=\&sockquit;
-$SIG{__DIE__}=\&fatal;
-$SIG{__WARN__}=\&fatal;
-
-sub fatal {
-  print "!!!! FATAL ERROR !!!!\n",@_,"\n";
-  killserver("Fatal Error",1); error(@_)
-}
-sub intquit {
-  killserver('130 Interrupt signal received'); exit
-}  
-sub termquit {
-  killserver('108 Client forcably killed connection'); exit
-}
-sub sockquit {
-  killserver("32 TCP/IP Connection error"); exit
-}
 
 sub killleaves {
   my ($client,$message) = @_;
