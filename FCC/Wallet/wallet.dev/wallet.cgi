@@ -28,10 +28,12 @@ sub versionCheck {
   my $github={base => "https://raw.githubusercontent.com/FactorialCoin/base/tree/master"};
   $github->{dev}="$github->{base}/FCC/Wallet/wallet.dev";
   my $fil = ['wallet.cgi','wallet.js','wallet.htm','wallet.css','image/clipboard.png','image/del.png','image/favicon-16.png','image/favicon-32.png','image/fccico.png','image/fcclogo.png','image/pause.png','image/pickaxe.gif','image/powerdown.png','image/save.png','image/start.png'];
-  my $version = get('$github->{dev}/version.txt');
+  my $fccversion = get("$github->{base}/version.txt"); $fccversion=~s/[^0-9]//gs;
+  print "** Github FCC base Version is: $fccversion\n";
+  my $version = get("$github->{dev}/version.txt"); $version=~s/[^0-9]//gs;
   my ($MAIN, $MAJOR, $MINOR) = (substr($VERSION,0,2),substr($VERSION,2,2),substr($VERSION,4,2));
   my ($main, $major, $minor) = (substr($version,0,2),substr($version,2,2),substr($version,4,2));
-  print "** Our Version is: $MAIN.$MAJOR.$MINOR\n";
+  print "** Our Wallet Version is: $MAIN.$MAJOR.$MINOR\n";
   print "** Github FCC/Wallet/wallet.dev Version is: $main.$major.$minor\n";
   my $upd=0;
   if( $version > $VERSION ){ # ipv if( ($main > $MAIN) || ($major > $MAJOR && $main >= $MAIN) || ($minor > $MINOR && $major >= $MAJOR && $main >= $MAIN) ){
@@ -58,7 +60,7 @@ sub versionCheck {
     for my $f (@$fil) { if (!-e $f) {
       if(!$mss){ $mss=1; print "** Updating missing files or images of Current Version $VERSION .. ** \n" }
       print "** Updating ($mss of ".(1+$#{$fil}).": $f ".(" "x16)."\r";
-      $upd++; my $d=get("$dev/$f"); if($d){ $mss++; gfio::content($f,$d) } 
+      $upd++; my $d=get("$github->{dev}/$f"); if($d){ $mss++; gfio::content($f,$d) } 
     } }
   }
   if($upd){
