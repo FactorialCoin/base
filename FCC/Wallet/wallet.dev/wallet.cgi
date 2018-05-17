@@ -56,12 +56,16 @@ sub versionCheck {
     # check for missing files after update (new images)
     my $mss=0;
     for my $f (@$fil) { if (!-e $f) {
-      if(!$mss){ $mss=1; print "** Updating missing files or images of Version $VERSION .. ** \n" }
+      if(!$mss){ $mss=1; print "** Updating missing files or images of Current Version $VERSION .. ** \n" }
       print "** Updating ($u of ".(1+$#{$fil}).": $f ".(" "x16)."\r";
       $upd++; my $d=get("$dev/$f"); if($d){ $mss++; gfio::content($f,$d) } 
     } }
   }
-  if($upd){ print "\n ** Please Restart your wallet.. ** \n"; sleep(2); exit }
+  if($upd){
+    print "\n ** 5 ** Please Restart your wallet.. ** \r";
+    for(my $s=5;$s>0;$s--){ print " ** $s \r"; usleep(1000000) }
+    exit
+  }
 }
 
 sub get { 
