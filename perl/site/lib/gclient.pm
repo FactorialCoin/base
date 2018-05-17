@@ -32,7 +32,7 @@ use Digest::SHA1 qw(sha1);
 use Gzip::Faster;
 use vars qw($VERSION @ISA @EXPORT @EXPORT_OK);
 
-$VERSION     = '7.3.1';
+$VERSION     = '7.4.1';
 @ISA         = qw(Exporter);
 @EXPORT      = ();
 @EXPORT_OK   = qw(openconnection in out websocket tcpip spliturl wsmsg wsquit wsinput localip website);
@@ -41,13 +41,14 @@ $VERSION     = '7.3.1';
 
 sub openconnection {
   # Opens a RAW binary non-blocking bi-directional connection, timeout in seconds.
-  my ($host,$port,$linemode,$timeout,$ssl) = @_;
+  my ($host,$port,$linemode,$timeout,$ssl,$connectcallback) = @_;
   my $self = {}; bless $self;
   if (!$linemode) { $linemode=0 }
   if (!$timeout) { $timeout=10 }
 
   $self->{host}=$host;
   $self->{port}=$port;
+  $self->{localip}=localip();
   $self->{ssl}=$ssl;
   $self->{timeout}=$timeout;
   $self->{linemode}=$linemode;
@@ -71,11 +72,13 @@ sub openconnection {
   $self->{outputlines}=[];
   $self->{connectlooptime}=0.01,
   $self->{waitforinput}=1;
+  $self->{connectcallback}=$connectcallback;
 
   # Connect to server
   my $proto = (getprotobyname('tcp'))[2];
   my $iaddr = inet_aton($self->{host});
   my $err=""; my $sock;
+  $self->{servervec} = "";
 
   if ((!defined $iaddr) || (length($iaddr)!=4)) {
     $self->{error}="Unable to resolve IP"; return $self
@@ -83,49 +86,66 @@ sub openconnection {
     my $sslerr=0;
     $self->{socket}=IO::Socket::SSL->new($self->{host}.":".$self->{port}) or $sslerr=1;
     if ($sslerr) { $self->{error}=$SSL_ERROR; return $self }
-    $sock=$self->{socket}
+    $sock=$self->{socket};
+    select($sock); $|=1; select(STDOUT);
+    # Set non blocking mode
+    $sock->blocking(0);                                             # linux
+    my $nonblocking = 1; ioctl($sock, 0x8004667E, \$nonblocking);   # windows
+
+    # Set autoflush on socket
+    $sock->autoflush(1);
+    #select($self->{socket}); 
+    binmode($sock); 
+
+    setsockopt($sock,SOL_SOCKET, SO_RCVTIMEO, 3);
   } else {
     $self->{socket}=undef;
     socket($sock, PF_INET, SOCK_STREAM, $proto) or $err="Cannot create socket on [$host:$port]: $!";
     if ($err) { $self->{error}=$err; return $self }  
 
-    setsockopt($sock,SOL_SOCKET, SO_RCVTIMEO, 1);
+    select($sock); $|=1; select(STDOUT);
+    # Set non blocking mode
+    $sock->blocking(0);                                             # linux
+    my $nonblocking = 1; ioctl($sock, 0x8004667E, \$nonblocking);   # windows
+
+    # Set autoflush on socket
+    $sock->autoflush(1);
+    #select($self->{socket}); 
+    binmode($sock); 
+
+    setsockopt($sock,SOL_SOCKET, SO_RCVTIMEO, 3);
 
     my $paddr = sockaddr_in($self->{port}, $iaddr);
 
-    connect($sock, $paddr) or $err="Could not connect to server [$host:$port]: $!";
+    vec($self->{servervec}, fileno($sock), 1) = 1;
+    select(undef, $self->{servervec}, undef, $self->{connectlooptime});
+    my $vec=vec($self->{servervec}, fileno($sock), 1);
+    connect($sock, $paddr) or $err="Could not connect to server [$host:$port]: $! ".(0+$!);
+    select(STDOUT); $|=1;
     if ($err) {
-      shutdown($sock,2); close($sock);
-      my ($i,$e) = split(/\]\: /,$err);
-      if (($e =~ /no connection/i) && ($e =~ /refused/i)) {
-        $err="Remote host is offline"
-      } elsif ((($e =~ /forcibly/i) || ($e =~ /closed/i)) && (($e =~ /existing/i) || ($e =~ /established/i))) {
-        $err="Lost connection to remote host"
-      } elsif (($e =~ /forcibly.*closed/i) || ($e =~ /established.*aborted/i)) {
-        $err="Remote host closed the connection"
+      if (($err !~ /\s140$/) && ($err !~ /\s115$/)) {
+        shutdown($sock,2); close($sock);
+        my ($i,$e) = split(/\]\: /,$err);
+        if (($e =~ /no connection/i) && ($e =~ /refused/i)) {
+          $err="Remote host is offline"
+        } elsif ((($e =~ /forcibly/i) || ($e =~ /closed/i)) && (($e =~ /existing/i) || ($e =~ /established/i))) {
+          $err="Lost connection to remote host"
+        } elsif (($e =~ /forcibly.*closed/i) || ($e =~ /established.*aborted/i)) {
+          $err="Remote host closed the connection"
+        }
+        $self->{error}=$err; return $self
       }
-      $self->{error}=$err; return $self
     }
     $self->{socket}=$sock;
   }
 
   $self->{connected}=gettimeofday();
 
-  # Set non blocking mode
-  $sock->blocking(0);                                             # linux
-  my $nonblocking = 1; ioctl($sock, 0x8004667E, \$nonblocking);   # windows
-
-  # Set autoflush on socket
-  $sock->autoflush(1);
-  select($self->{socket}); binmode($self->{socket}); $|=1;
+  #$|=1;
 
   # Set output to console
   select(STDOUT); binmode(STDOUT); $|=1;
   $self->{selector}=IO::Select->new($sock);
-
-  # wait for socket ready
-  $self->{servervec} = "";
-  $self->connectready;
 
   return $self
 }
@@ -140,6 +160,12 @@ sub connectready {
   select(undef, $self->{servervec}, undef, $self->{connectlooptime});
   if (vec($self->{servervec}, fileno($sock), 1)) {
     $self->{waitforinput}=0;
+    my $tm=gettimeofday()-$self->{connected};
+    $self->{connectspeed}=$tm;
+    if ($self->{connectcallback}) {
+      my $callback=$self->{connectcallback};
+      &$callback($self,$tm)
+    }
   } else {
     my $tm=gettimeofday()-$self->{connected};
     if ($tm>$self->{timeout}) {
@@ -405,7 +431,6 @@ sub tcpip {
   my $self=openconnection($host,$port,$linemode,$timeout,$ssl);
   $self->{caller}=$caller;
   if ($self->{error}) { &$caller($self,"quit",$self->{error}); $self->quit; return $self }
-  $self->{localip}=localip();
   if ($loopmode) { $self->{loopmode}=1 }
   &$caller($self,'connect',gettimeofday." ".$self->{host}.":".$self->{port});
   if ($loopmode) {
@@ -470,62 +495,56 @@ sub website_event {
   if (($command eq 'quit') || ($command eq 'error')) {
     $client->{iquit}=1
   } elsif ($command eq 'input') {
+    $client->{hbuffer}.=$data;
     if ($client->{readheader}) {
-      if (length($data) == 0) {
+      if ($client->{hbuffer} =~ /\r\n\r\n/) {
+        my ($hdata,@cdata)=split(/\r\n\r\n/,$client->{hbuffer});
+        $client->{hbuffer}=join("\r\n\r\n",@cdata);
+        foreach my $line (split(/\r\n/,$hdata)) {
+          processheader($client,$line)
+        }
         $client->{readheader}=0;
-        # data to be expected?
         if (defined $client->{header}{'Content-Length'}) {
           $client->{httplength}=$client->{header}{'Content-Length'};
           if (!$client->{httplength}) {
-            $client->{iquit}=1
+            $client->{iquit}=1; return
           }
         } elsif ((defined $client->{header}{'Transfer-Encoding'}) && ($client->{header}{'Transfer-Encoding'} =~ /chunked/i)) {
           $client->{chunked}=1
         } elsif ((defined $client->{header}{'Content-Encoding'}) && ($client->{header}{'Content-Encoding'} =~ /chunked/i)) {
           $client->{chunked}=1
-        }
-      } else {
-        processheader($client,$data);
+        }        
       }
-    } else {
-      if ($client->{chunked}) {
-        if (!$client->{chunk}) {
-          if (length($data) == 0) {
-            $client->{iquit}=1
-          } else {
-            my $len=length($data);
-            if ($len<6) {
-              $client->{chunk}=hex($data);
+    }
+    if (!$client->{readheader}) {
+      if (length($client->{hbuffer}) >= $client->{httplength}) {
+        # prevent exploits
+        $client->{hbuffer}=substr($client->{hbuffer},0,$client->{httplength});
+        if ($client->{chunked}) {
+          my $mode=1; my $pos=0; my $size=0; my $read="";
+          while ($pos < length($client->{hbuffer})) {
+            if ($mode == 1) {
+              if (substr($client->{hbuffer},$pos,2) eq "\r\n") {
+                if ($read =~ /[^a-fA-F0-9]/) {
+                  $client->{error}="Corrupted chunk-size in content"; $client->{iquit}=1; return
+                }
+                $size=hex($read); $read=""; $mode=2; $pos+=2
+              } else {
+                $read.=substr($client->{hbuffer},$pos,1); $pos++
+              }
             } else {
-              $client->{chunk}=0
+              $client->{content}.=substr($client->{hbuffer},$pos,$size);
+              $pos+=$size;
+              if (substr($client->{hbuffer},$pos,2) ne "\r\n") {
+                $client->{error}="Corrupted chunked data in content"; $client->{iquit}=1; return
+              }
+              $pos+=2; $mode=1
             }
-            if ($client->{chunk} == 0) {
-              $client->{iquit}=1
-            }
           }
-        } else {
-          if (length($data)+2<=$client->{chunk}) { $data.="\r\n" }
-          $client->{chunkbuf}.=$data;
-          $client->{chunk}-=length($data);
-          if ($client->{chunk}<=0) {
-            $client->{content}.=$client->{chunkbuf};
-            $client->{chunkbuf}=""; $client->{chunk}=0;
-          }
+        } else {        
+          $client->{content}=$client->{hbuffer};
         }
-      } else {        
-        $client->{content}.=$data;
-        $client->{dataread}+=length($data);
-        if ($client->{httplength}) {
-          if ($client->{dataread}+2<=$client->{httplength}) {
-            # is the 'enter' data or not?
-            $client->{content}.="\r\n"; $client->{dataread}+=2
-          }
-          if ($client->{dataread}+2>=$client->{httplength}) {
-            $client->{iquit}=1;
-          }
-        } else {
-          $client->{content}.="\r\n"; $client->{dataread}+=2
-        }
+        $client->{iquit}=1;
       }
     }
   }
@@ -534,6 +553,7 @@ sub website_event {
 sub website {
   my ($url,$proxy,$login,$pass) = @_;
   my $info=spliturl($url);
+  if ($info->{path}) { $info->{path} =~ s/^\/// }
   my @header=(); my $proxyinfo;
   if ($proxy) {
     $proxyinfo=spliturl($proxy);
@@ -560,28 +580,27 @@ sub website {
   my $head=join("\r\n",@header)."\r\n\r\n";
   my $client;
   if ($proxy) {
-    $client=tcpip($proxyinfo->{host},$proxyinfo->{port},0,\&website_event,$proxyinfo->{ssl},1,5);
+    $client=tcpip($proxyinfo->{host},$proxyinfo->{port},0,\&website_event,$proxyinfo->{ssl},0,5);
   } else {
-    $client=tcpip($info->{host},$info->{port},0,\&website_event,$info->{ssl},1,5);
+    $client=tcpip($info->{host},$info->{port},0,\&website_event,$info->{ssl},0,5);
   }
+  while ($client->{waitforinput} && !$client->{quit}) {
+    $client->takeloop()
+  }
+  if ($client->{quit}) { return $client }
   $client->out($head);
   $client->outburst();
   #$client->{debug}=1;
   $client->{readheader}=1;
-  $client->{gotheader}=0;
+  $client->{hbuffer}="";
   $client->{header}={};
-  $client->{content}="";
   $client->{httplength}=0;
   $client->{chunked}=0;
-  $client->{chunk}=0;
-  $client->{chunkbuf}="";
-  $client->{dataread}=0;
-  $client->{timedout}=0;
-  $client->{dd}="";
+  $client->{content}="";
   $client->{iquit}=0;
+  $client->{timedout}=0;
   my $tm=gettimeofday();
   while (!$client->{iquit}) {
-    usleep(10000);
     $client->takeloop();
     if (gettimeofday()-$tm>5) {
       $client->{timedout}=1;
@@ -618,20 +637,14 @@ sub website {
   return $client
 }
 
-sub websocket {
-  my ($host,$port,$loopmode,$caller,$ssl) = @_;
-  if (!defined $caller || (ref($caller) ne 'CODE')) { error "GClient.websocket: Caller is not a procedure-reference" }
-  my $self=openconnection($host,$port,0,undef,$ssl);
-  if ($self->{error}) { &$caller($self,"quit",$self->{error}); $self->quit; return $self }
-  $self->{localip}=localip();
-  $self->{caller}=$caller;
-  &$caller($self,'init');
+sub starthandshake {
+  my ($self,$ctm) = @_;
   my $hash=sha1("Domero".gettimeofday."Domero");
   my $handshake = encode_base64($hash);
   $self->{handshake}=$handshake;
   my $out=<<EOT;
 GET /chat HTTP/1.1
-Host: $host
+Host: $self->{host}
 Upgrade: websocket
 Connection: Upgrade
 Sec-WebSocket-Key: $handshake
@@ -643,8 +656,18 @@ EOT
   $out =~ s/\n/\r\n/g;
   $self->out($out);
   $self->outburst;
+  $self->{upgradetime}=gettimeofday();  
+}
+
+sub websocket {
+  my ($host,$port,$loopmode,$caller,$ssl,$timeout) = @_;
+  if (!defined $caller || (ref($caller) ne 'CODE')) { error "GClient.websocket: Caller is not a procedure-reference" }
+  my $self=openconnection($host,$port,0,$timeout,$ssl,\&starthandshake);
+  if ($self->{error}) { &$caller($self,"quit",$self->{error}); $self->quit; return $self }
+  $self->{caller}=$caller;
+  &$caller($self,'init');
+  $self->{upgradetime}=gettimeofday();  
   $self->{upgrademode}=1;
-  $self->{upgradetime}=gettimeofday();
   if ($loopmode) {
     $self->{loopmode}=1;
     while (!$self->{quit}) {
@@ -791,7 +814,7 @@ sub handlews {
   if ($type eq 'close') {
     utf8::decode($msg);
     my $code=(ord(substr($msg,0,1))<<8)+ord(substr($msg,1,1));
-    $msg=substr($msg,2);
+    $msg=substr($msg,2); if (!$msg) { $msg="Quit" }
     &$caller($self,'quit',"$code $msg");
     if ($self->{verbose}) {
       print STDOUT "\nWebSocket server has closed the connection: $code $msg\n"
@@ -814,7 +837,8 @@ sub wsmsg {
 
 sub wsquit {
   my ($self,$msg) = @_;
-  $self->wsout($msg,'close')
+  $self->wsout($msg,'close');
+  $self->outburst()
 }
 
 sub wsout {
@@ -914,7 +938,7 @@ sub localip {
     PeerAddr    => '198.41.0.4', # a.root-servers.net
     PeerPort    => '53', # DNS
   );
-  return $socket->sockhost;
+  return $socket->sockhost || '0.0.0.0';
 }
 
 # EOF gclient.pm (C) 2018 Domero
