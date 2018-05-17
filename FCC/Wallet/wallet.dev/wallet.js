@@ -9,6 +9,7 @@
   var solutionFound=0;
   var wins=0;
   var lost=0;
+  var miningstart=1;
   var mtime=Date.now()/1000;
   var miningwallet;
 
@@ -20,7 +21,7 @@
   
   function wininfo(){
     var avgwin=(wins+lost) ? Math.floor((100/(wins+lost))*wins*100)/100 : 0;
-    document.getElementById('minewins').innerHTML="Won: "+wins+"<br>Lost: "+lost+"<br>%: "+avgwin;
+    if(document.getElementById('coinwon')) document.getElementById('coinwon').innerHTML="("+avgwin+"%) "+wins+" of "+(wins+lost);
   }
   
   function mineout(txt) {
@@ -33,17 +34,20 @@
         diff: arg[5],
         rewa: arg[8],
         leng: arg[11],
-        hint: arg[14]
+        hint: arg[14].split('')
       };
+      cha.hint.sort();
+      drawDiff(Number(cha.diff));
+      drawCoin(0);
       sd.innerHTML =
-      '<table width=100% cellspacing=0 cellpadding=0 border=0>'+
-        '<tr><th align=right>Coincount:</th><th align=right>'+cha.coin+'</th></tr>'+
-        '<tr><th align=right>Difficulty:</th><th align=right>'+cha.diff+'</th></tr>'+
-        '<tr><th align=right>Reward:</th><th align=right>'+cha.rewa+'</th></tr>'+
-        '<tr><th align=right>Length:</th><th align=right>'+cha.leng+'</th></tr>'+
-        '<tr><th align=right>Hints:</th><th align=right>'+cha.hint+'</th></tr>'+
+      '<table cellspacing=0 cellpadding=0 border=0 id="cointable">'+
+        '<tr><th>Reward:</th><td id="coinreward">'+cha.rewa+'</td><th>Won:</th><td id="coinwon"></td></tr>'+
+        '<tr><th>Coincount:</th><td id="coincount">'+cha.coin+'</td><th>Fh/s:</th><td id="coinfhs">0</td></tr>'+
+        '<tr><th>Difficulty:</th><td id="coindiff" title="'+cha.diff+'">'+kstr(cha.diff)+'</td><th>Mined:</th><td id="coinprc">0%</td></tr>'+
+        '<tr><th>Length:</th><td id="coinlength">'+cha.leng+'</td><th>Sec:</th><td id="coinsec">0</td></tr>'+
+        '<tr><th>Hints:</th><td id="coinhint">'+cha.hint.length+'</td><td colspan="2">'+cha.hint.join(',')+'</td></tr>'+
       '</table>';
-      if(solutionFound) solutionFound=0;
+      if(solutionFound || miningstart) { solutionFound=0; miningstart=0 }
       else{
         var st=document.getElementById('mineoutput');
         st.innerHTML += "<br><font color='red'> Lost This Round :-/ </font>";
@@ -53,11 +57,18 @@
       }
     }
     else if ((/Speed:/gi).test(txt)) {
+      var cp=document.getElementById('coinprc');
+      var cs=document.getElementById('coinsec');
+      var cf=document.getElementById('coinfhs');
       var sd=document.getElementById('minespeed');
       var mtm=Date.now()/1000;
+      var sec=Math.floor(mtm-mtime);
       sd.innerHTML = txt.replace('Speed: ','');
-      drawSpeed(sd.innerHTML);
-      sd.innerHTML +=" <sup><small>[ "+Math.floor(mtm-mtime)+" ]</small></sup>";
+      var fhs=drawSpeed(sd.innerHTML);
+      timeCoin(sec);
+      cs.innerHTML = sec;
+      cf.innerHTML = kstr(fhs[0]);
+      cp.innerHTML = fhs[1]+'%';
     }
     else if ((/Found solution/gi).test(txt)) {
       var st=document.getElementById('mineoutput');
@@ -80,6 +91,15 @@
     }
   }
 
+function kstr (num) {
+  var nl=(num+"").split('');
+  var ni=0,os="";
+  for(var i=nl.length-1;i>=0;i--){
+    os=nl[i]+os;
+    ni++; if(ni == 3 && i>0){ ni=0; os="."+os }
+  }
+  return os
+}
 var discon=0;
   function connect() {
     if ("WebSocket" in window) {
@@ -96,7 +116,7 @@ var discon=0;
       chatout("** Connected to the WebSocket Server");
       connected=1; beenconnected=1;
       socket.send('init');
-      document.getElementById('powerbutton').style.background='rgba(0,255,0,0.5)';
+      document.getElementById('powerbutton').style.background='rgba(127,255,127,0.6)';
     }
     socket.onmessage = function(evt) {
       // arg is usally the time !!!!
@@ -209,6 +229,10 @@ var discon=0;
   }
   function savechatauto(checked){
     socket.send('savechat auto '+(checked?"1":"0"));
+  }
+  function savechatzoom(zoom){
+    socket.send('savechat zoom '+zoom);
+    chatzoom()
   }
   function gorefresh() {
   	document.getElementById('graybg').style.visibility='visible';
@@ -340,6 +364,7 @@ var discon=0;
     		cwo.options[0].text=wl[i].id.substr(1);
     	}
     }
+    document.getElementById('pickaxe').style.display = (new RegExp(wallet)).test(document.getElementById('minewallet').innerHTML) ? 'block':'none';
   	activewallet=wobj
   }
   function setbalance(balance,wallet) {
@@ -365,14 +390,25 @@ var discon=0;
         obj.src=c;
       }
     } else {
-      document.getElementById('openchat').innerHTML='Reopen Chatbox';
+      document.getElementById('openchat').innerHTML='&nbsp;&nbsp;Reopen Chatbox';
+      document.getElementById('chatzoom').style.display='block';
+      var ct=document.getElementById('chatcont');
       obj=document.createElement("IFRAME");
       obj.id='chatframe';
       obj.src=c;
-      obj.style.width="100%";
-      obj.style.height="100%";
       obj.scrolling="no";
-      document.getElementById('chatcont').appendChild(obj)
+      ct.appendChild(obj);
+      chatzoom()
+    }
+  }
+  function chatzoom() {
+    var cz=document.getElementById('chatzoom'), zm=cz.options[cz.selectedIndex].value, zp=(100/(zm/100));
+    var cf=document.getElementById('chatframe');
+    if(cf){
+      if(cf.classList.length>0) cf.classList.remove(cf.classList.item(0));
+      cf.classList.add("zm"+zm);
+      cf.style.width=zp+'%';
+      cf.style.height=zp+'%';
     }
   }
   function savewalname() {
@@ -399,7 +435,7 @@ var discon=0;
       textarea.select();
       try {
         document.execCommand("copy");  // Security exception may be thrown by some browsers.
-    	  document.getElementById("copied").innerHTML="Wallet address [ "+txt+" ] copied to clipboard";
+    	  document.getElementById("copied").innerHTML="Copied to clipboard";
       } catch (ex) {
     	  document.getElementById("copied").innerHTML="NOT copied. " + ex;
       } finally {
@@ -439,20 +475,21 @@ var discon=0;
   function startminer(w) {
     var wallet = w||getwallet();
     document.getElementById('minewallet').innerHTML=wallet + (wallets[wallet] ? '<br>'+wallets[wallet]:'');
-    document.getElementById('startminer').style.visibility='hidden';
-    document.getElementById('stopminer').style.visibility='visible';
-    document.getElementById('pickaxe').style.display='inline-block';
-    document.getElementById('minewins').style.display='inline-block';
+    document.getElementById('minerrunning').style.display='block';
+    document.getElementById('minerstopped').style.display='none';
+    document.getElementById('miner').style.display='block';
+    document.getElementById('pickaxe').style.display = (new RegExp(document.getElementById('wallet').innerHTML)).test(document.getElementById('minewallet').innerHTML) ? 'block':'none';
     mineout('Started Miner on '+wallet.substr(0,16)+'... !');
     miningwallet=wallet;
     socket.send('startminer ' + wallet)
   }
   function stopminer() {
+    miningstart=1;
     document.getElementById('minewallet').innerHTML="";
-    document.getElementById('startminer').style.visibility='visible';
-    document.getElementById('stopminer').style.visibility='hidden';
-    document.getElementById('pickaxe').style.display='none';
-    document.getElementById('minewins').style.display='none';
+    document.getElementById('minerrunning').style.display='none';
+    document.getElementById('minerstopped').style.display='block';
+    document.getElementById('miner').style.display='none';
+    document.getElementById('pickaxe').style.display = 'none';
     mineout('Miner stopped!');
     socket.send('stopminer')
   }
@@ -704,11 +741,18 @@ var discon=0;
   	}
   }
   
-  // mining canvas
-  var mineStat=[];
-  var mnh=null, mxh=null;
-  function drawClear(c){
-    var ctx=document.getElementById('minecanvas').getContext('2d');
+  // canvas
+
+  function drLine (ctx,x1,y1,x2,y2,w,c){
+    ctx.lineWidth=w;
+    ctx.strokeStyle=c;
+    ctx.beginPath();
+    ctx.moveTo(x1,y1);
+    ctx.lineTo(x2,y2);
+    ctx.stroke();
+  }
+
+  function clearCtx(ctx,c){
     if(c){
       ctx.fillStyle=c;
       ctx.fillRect(0,0,1000,100);
@@ -717,52 +761,159 @@ var discon=0;
     }
   }
 
+  function mineCtx(){
+    return document.getElementById('minecanvas').getContext('2d')
+  }
+  function diffCtx(){
+    return document.getElementById('diffcanvas').getContext('2d')
+  }
+  function coinCtx(){
+    return document.getElementById('coincanvas').getContext('2d')
+  }
+
+  // mining canvas
+
+  var mineStat=[];
+  var mnh=null, mxh=null;
+
+  function clearMine(c){
+    clearCtx(mineCtx(),c)
+  }
+
   function addStat(fhs,fpr){
-    if(fpr == undefined){
-      if(fhs){
-        drawClear('rgba(0,255,0,1)');
-      }else{
-        drawClear('rgba(255,0,0,1)');
-      }
+    if(fpr == undefined){ // Hits
+      if(fhs) clearMine('rgba(0,255,0,1)');
+      else    clearMine('rgba(255,0,0,1)');
       mineStat.push([fhs]);
     }
-    else{
-      mineStat.push([fhs,fpr]);
-    }
+    // fHs
+    else mineStat.push([fhs,fpr]);
     truncStat();
   }
-  
+
   function truncStat(){
     while(mineStat.length>1000) mineStat.shift();
   }
   
   function drawSpeed(speed){
+    var fhs,fpr;
     if(speed){
       var s=speed.split(' '); // 33750,Fhash/sec,(7.67,%)
-      var fhs=Number(s[0]),fpr=Number(s[2].replace('(',''));
+      fhs=Number(s[0]),fpr=Number(s[2].replace('(',''));
       addStat(fhs,fpr);
     }
+    mnh = null; mxh = null;
     for (var i=0;i<mineStat.length;i++) {
       if(mineStat[i][1] != undefined){
         if(mnh == null || mnh>mineStat[i][0]) mnh=mineStat[i][0];
         if(mxh == null || mxh<mineStat[i][0]) mxh=mineStat[i][0];
       }
     }
-    var dist=Math.abs(mxh-mnh-10)+10;
-    drawClear(mineStat[mineStat.length-1][1] == undefined ? mineStat[mineStat.length-1][0] ? 'rgba(0,255,0,1)' : 'rgba(255,0,0,0)' : 'rgba(100,196,255,0.25)');
-    var ctx=document.getElementById('minecanvas').getContext('2d');
-    var l,t,c;
+    var dist=Math.abs(mxh-mnh);
+    clearMine(mineStat[mineStat.length-1][1] == undefined ? mineStat[mineStat.length-1][0] ? 'rgba(0,255,0,1)' : 'rgba(255,0,0,0)' : 'rgba(0,0,0,0.2)');
+    var ctx=mineCtx();
+    var l,t,c,pl=null,pt=null;
     for(var i=1,j=mineStat.length-1;i<=mineStat.length;i++,j--){
       l=1000-i;
-      t=90 - (mineStat[j][1] == undefined ? 100 : ((80/dist)*(mineStat[j][0]-mnh)) );
-      c=(255/100)*t;
-      var col = mineStat[j][1] == undefined ? mineStat[j][0] ? 'lime' : 'red' : "rgb("+Math.round(255-c)+","+Math.round(127-(c/2))+","+Math.round(127+(c/2))+")";
-      ctx.beginPath();
-      ctx.moveTo(l,100);
-      ctx.lineTo(l,t);
-      ctx.lineWidth=1;
-      ctx.strokeStyle=col;
-      ctx.stroke();
+      t=90 - (mineStat[j][1] == undefined ? 90 : ((80/dist)*(mineStat[j][0]-mnh)) );
+      c=(255/100) * (mineStat[j][1] == undefined ? 100 : ((100/dist)*(mineStat[j][0]-mnh)) );
+      var col = mineStat[j][1] == undefined ? mineStat[j][0] ? '#00aa00' : '#aa0000' : "rgb(255,"+Math.round((255*0.4)+(c*0.6))+",0)";
+      drLine(ctx,pl==null?l:pl,mineStat[j][1] == undefined ? 100 : pt==null ? t : pt,l,t,3,col);
+      if(mineStat[j][1] != undefined ){ pl=l; pt=t }
+    }
+    return [fhs,fpr];
+  }
+
+  // Difficulty Canvas
+
+  var diffStat=[];
+  var mndh=null, mxdh=null;
+
+  function cleanDiff(){
+    diffCtx().clearRect(0,0,2000,100);
+  }
+
+  function addDiff(diff){
+    diffStat.push(Number(diff));
+    truncDiff();
+  }
+
+  function truncDiff(){
+    while(diffStat.length>500) diffStat.shift();
+  }
+  
+  function drawDiff(diff){
+    if(diff) addDiff(diff);
+    for (var i=0;i<diffStat.length;i++) {
+      if(diffStat[i] != undefined){
+        var d=Number(diffStat[i]);
+        if(mndh == null || mndh>d) mndh=d;
+        if(mxdh == null || mxdh<d) mxdh=d;
+      }
+    }
+    var dist=diffStat.length<2 || !(mxdh-mndh) ? 1 : Math.abs(mxdh-mndh);
+    //console.log(dist+mndh);
+    cleanDiff();
+    var ctx=diffCtx();
+    var l,t,c,d,pl=0,pt=null;
+    for(var i=1,j=0;i<=diffStat.length;i++,j++){
+      l=(i-1)*(2000/coinStat.length);
+      d=(diffStat[j]-mndh);
+      t=90 - (diffStat[j] == undefined ? 80 : ((80/dist)*d) );
+      c=(255/100) * (diffStat[j] == undefined ? 0 : ((100/dist)*d) );
+      var col = diffStat[j] == undefined ? 'red' : "rgba("+Math.round((255*0.2)+(c*0.4))+",0,255,0.8)";
+      drLine(ctx,pl==null?l:pl,pt==null?t:pt,l,t,3,col);
+      pl=l;
+      pt=t;
+    }
+  }
+
+  // Coinbase Canvas
+
+  var coinStat=[];
+  var mnch=null, mxch=null;
+
+  function cleanCoin(){
+    coinCtx().clearRect(0,0,2000,100);
+  }
+
+  function addCoin(time){
+    coinStat.push(Number(time));
+    truncCoin();
+  }
+
+  function truncCoin(){
+    while(coinStat.length>500) coinStat.shift();
+  }
+  
+  function timeCoin(time){
+    if(coinStat.length) coinStat[coinStat.length-1]=time; else coinStat[0]=time;
+    drawCoin();
+  }
+
+  function drawCoin(time){
+    if(time!=undefined) addCoin(time);
+    for (var i=0;i<coinStat.length;i++) {
+      if(coinStat[i] != undefined){
+        var d=Number(coinStat[i]);
+        if(mnch == null || mnch>d) mnch=d;
+        if(mxch == null || mxch<d) mxch=d;
+      }
+    }
+    var dist=Math.abs(mxch-mnch);
+    //console.log(dist+mnch);
+    cleanCoin();
+    var ctx=coinCtx();
+    var l,t,c,d,pl=0,pt=null;
+    for(var i=1,j=0;i<=coinStat.length;i++,j++){
+      l=(i*(2000/coinStat.length));
+      d=(coinStat[j]-mnch);
+      t=90 - (coinStat[j] == undefined ? 0 : ((80/dist)*d) );
+      c=(255/100) * (coinStat[j] == undefined ? 0 : ((100/dist)*d) );
+      var col = coinStat[j] == undefined ? 'red' : "rgba(255,0,"+Math.round((255*0.2)+(c*0.4))+",0.8)";
+      drLine(ctx,pl==null?l:pl,pt==null?t:pt,l,t,3,col);
+      pl=l;
+      pt=t;
     }
   }
 

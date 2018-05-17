@@ -1,13 +1,14 @@
 #!/usr/bin/perl
 
 # FCC Local Wallet Server
-#use lib qw(../modules);
+use lib qw(../modules);
 use strict;
 no strict 'refs';
 use warnings;
 use Time::HiRes qw(usleep gettimeofday);
 use Crypt::Ed25519;
 use Browser::Open qw(open_browser);
+use gfio;
 use gserv 4.1.1 qw(wsmessage broadcastfunc);
 use gclient 7.2.2;
 use FCC::global;
@@ -17,7 +18,57 @@ use FCC::leaf 2.01 qw(startleaf leafloop closeleaf);
 use gerr qw(error);
 use JSON;
 
-###### Use this to force connecting to trusted nodes ###########################
+my $VERSION = "010102";
+versionCheck();
+
+################################################################################
+###### Development Wallet Updater by SkyDrive & OnEhIppY #######################
+
+sub versionCheck {
+  my $github={base => "https://raw.githubusercontent.com/FactorialCoin/base/tree/master"};
+  $github->{dev}="$github->{base}/FCC/Wallet/wallet.dev";
+  my $fil  = ['wallet.cgi','wallet.js','wallet.htm','wallet.css','image/clipboard.png','image/del.png','image/favicon-16.png','image/favicon-32.png','image/fccico.png','image/fcclogo.png','image/pause.png','image/pickaxe.gif','image/powerdown.png','image/save.png','image/start.png'];
+  my $version = get('$github->{dev}/version.txt');
+  my ($MAIN, $MAJOR, $MINOR) = (substr($VERSION,0,2),substr($VERSION,2,2),substr($VERSION,4,2));
+  my ($main, $major, $minor) = (substr($text,0,2),substr($text,2,2),substr($text,4,2));
+  print "** Our Version is: $MAIN.$MAJOR.$MINOR\n";
+  print "** Github Dev Version is: $version->{main}.$version->{major}.$version->{minor}\n";
+  my $upd=0;
+  if( $version > $VERSION ){ # ipv if( ($main > $MAIN) || ($major > $MAJOR && $main >= $MAIN) || ($minor > $MINOR && $major >= $MAJOR && $main >= $MAIN) ){
+    print "** Updating to Version $VERSION to new Version $version .. ** \n";
+    my $u=0;
+    for my $f (@$fil) {
+      $u++;
+      print "** Updating ($u of ".(1+$#{$fil}).": $f ".(" "x16)."\r";
+      if($f =~ /image\//){
+        if(!-e $f){
+          my $d=get("$github->{dev}/$f");
+          if($d) { gfio::content($f,$d) }
+        }
+      } else {
+        my $d=get("$github->{dev}/$f");
+        if($d) { gfio::content($f,$d) }
+      }
+    }
+    gfio::content("wallet.updated",$version);
+    $upd++;
+  }
+  # check for missing files after update (new images)
+  for my $f (@$fil) { if (!-e $f) { $upd++; my $d=get("$dev/$f"); if($d){ gfio::content($f,$d) } } }
+  if($upd){ print "\n ** Please Restart your wallet.. ** \n"; sleep(2); exit }
+}
+
+sub get { 
+  my $req=gclient::website(@_);
+  if($req->{error}){
+    print "\nError requesting : $_[0]\n$req->{error}\n\n";
+    return
+  }
+  return $req->{content}
+}
+
+################################################################################
+###### Use the file trusted.nodes to force connecting to trusted nodes #########
 
 my $TRUSTEDNODES=(-e "trusted.nodes" ? decode_json(gfio::content("trusted.nodes")) : []);
 my $FORCENODE; if($#$TRUSTEDNODES>-1){ $FORCENODE=$TRUSTEDNODES->[int(rand()*(1+$#$TRUSTEDNODES))] }
@@ -534,7 +585,7 @@ sub handle {
       $POWERDOWN=1;
     } elsif ($data =~ /^savechat ([^\s]+) ([^\s]+)$/) {
       my $scc=$1; my $scv=$2; my $scs=0;
-      if(($scc eq 'nick')||($scc eq 'ident')||($scc eq 'auto')){
+      if(($scc eq 'nick')||($scc eq 'ident')||($scc eq 'auto')||($scc eq 'zoom')){
         if(!defined $NICKIDENT->{$PORT}){
           $NICKIDENT->{$PORT}={$scc=>$scv};
         } else {
@@ -568,7 +619,7 @@ sub handle {
     } elsif ($uri eq '/wallet.js') {
       burstfile($client,'wallet.js','text/javascript',1,@out);
     } elsif ($uri eq '/wallet.css') {
-      burstfile($client,'wallet.css','text/css',0,@out);
+      burstfile($client,'wallet.css','text/css',1,@out);
     } elsif ($uri =~ /image\/(.+)$/) {
       burstfile($client,"image/$1",$1 =~ /gif$/ ? 'image/gif':'image/png',0,@out);
     } else {
@@ -595,16 +646,19 @@ sub burstfile {
 sub filtervars {
   my($data)=@_;
   $data =~ s/\$PORT/$PORT/gs;
+
   if(defined $NICKIDENT->{$PORT} && defined $NICKIDENT->{$PORT}{nick}) {
     $data =~ s/\$NICK/$NICKIDENT->{$PORT}{nick}/gs;
   } else {
     $data =~ s/\$NICK//gs;
   }
+
   if (defined $NICKIDENT->{$PORT} && defined $NICKIDENT->{$PORT}{ident}) {
     $data =~ s/\$IDENT/$NICKIDENT->{$PORT}{ident}/gs;
   } else {
     $data =~ s/\$IDENT//gs;
   }
+
   if (defined $NICKIDENT->{$PORT} && $NICKIDENT->{$PORT}{auto}) {
     $data =~ s/\$AUTOSTART/openchat();/gs;
     $data =~ s/\$CHATAUTO/checked/gs;
@@ -612,6 +666,17 @@ sub filtervars {
     $data =~ s/\$AUTOSTART//gs;
     $data =~ s/\$CHATAUTO//gs;
   }
+
+  my $zm=100; if (defined $NICKIDENT->{$PORT} && $NICKIDENT->{$PORT}{zoom}) { $zm=$NICKIDENT->{$PORT}{zoom} }
+  my @zo=();
+  my @zc=();
+  for my $z (500,400,300,250,200,175,150,125,120,110,100,90,80,75,70,60,50,40,30,25,20,15,10,5) {
+    my $s=$z/100;
+    push @zo, "<option value='$z'".($z==$zm ? ' selected':'').">$z %</option>";
+    push @zc, ".zm$z { -ms-zoom: $s; -moz-transform: scale($s); -o-transform: scale($s); -webkit-transform: scale($s); -moz-transform-origin: 0 0; -o-transform-origin: 0 0; -webkit-transform-origin: 0 0; }"
+  }
+  my $zop=join('',@zo);   $data =~ s/\$ZOOMOPTION/$zop/gs;
+  my $zcss=join("\n",@zc); $data =~ s/\$ZOOMCSS/$zcss/gs;
 
   return $data
 }
@@ -673,6 +738,7 @@ sub slavecall {
 }
 
 sub slaveminercall {
+  my $log="coinbase.$PORT.log";
   my ($leaf,$command,$data) = @_;
   if (!$data || (ref($data) ne 'HASH')) { error("No data HASHREF given from leaf! command = $command") }
   if (!$data->{message}) { $data->{message}=$command }
@@ -685,6 +751,8 @@ sub slaveminercall {
     $MINING=0
   } elsif (($command eq 'disconnect') || ($command eq 'terminated')) {
     if ($MINING) {
+      my $mstr=time." stopped $MINEDATA->{coincount} $MINEDATA->{diff}\n";
+      if (-e $log) { gfio::append($log,$mstr) } else { gfio::create($log,$mstr) }
       print "Miner Stopped '$data->{message}': $data->{error}\n";
       wsmessage($leaf->{client},"miner <span style=\"color: red; font-weight: bold\">Terminated '$data->{message}': $data->{error}</span>");
 #      wsmessage($leaf->{client},"minerstop");
@@ -695,10 +763,14 @@ sub slaveminercall {
   if ($command eq 'mine') {
     print "miner New challenge: Coincount = $data->{coincount} Difficulty = $data->{diff} Reward = $data->{reward} Len = $data->{length} Hints = $data->{hints}\n";
     if (!$MINING || ($data->{coincount} > $MINEDATA->{coincount})) {
+      my $mstr=time." coinbase $data->{coincount} $data->{diff}\n";
+      if (-e $log) { gfio::append($log,$mstr) } else { gfio::create($log,$mstr) }
       if ($MINER->{client}) { wsmessage($MINER->{client},"miner New challenge: Coincount = $data->{coincount} Difficulty = $data->{diff} Reward = $data->{reward} Len = $data->{length} Hints = $data->{hints}") }
       challenge($data);
     }
   } elsif ($command eq 'solution') {
+    my $mstr=time." solution $MINEDATA->{coincount} $MINEDATA->{diff}\n";
+    if (-e $log) { gfio::append($log,$mstr) } else { gfio::create($log,$mstr) }
     print " *** Found solution!! Earned FCC ".extdec($MINEDATA->{reward} / 100000000)." ***\n";
     if ($MINER->{client}) {
       wsmessage($MINER->{client},"miner <span style=\"color: darkgreen; font-weight: bold\">Found solution!! Earned FCC ".extdec($MINEDATA->{reward} / 100000000)."</span>");

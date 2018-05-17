@@ -51,28 +51,31 @@
     </div>
     
     <div id="active">
+      <img id="pickaxe" src="image/pickaxe.gif" />
       <div id="powerbutton"
         onclick="if(confirm('Click Ok to confirm you want to close down your wallet / miner')) powerDownWallet()"
       ><img id="powerimage" src="image/powerdown.png" height="64" class="muis" onclick="powerdown()" title="Powerdown the Wallet and Miner" /></div>
 
-      <img id="fcclogo" src="image/fcclogo.png" />
-
-      <div id="miner">
-        <div id="minecanv">
-          <canvas id="minecanvas" width="1000" height="100"></canvas>
-          <img id="pickaxe" src="image/pickaxe.gif" />
-          <div id="minespeed"></div>
-        </div>
+      <div id="minerstopped">
         <img id="startminer" class="muis" onclick="startminer()" src="image/start.png" title="Start Miner on Current Selected Wallet" />
+      </div>
+      <div id="minerrunning">
+      </div>
+      <div id="miner">
         <img id="stopminer" class="muis" onclick="stopminer()" src="image/pause.png" title="Stop Mining" />
         <div id="minewallet"></div>
-        <div id="minediff"></div>
         <div id="mineoutput">Miner inactive</div>
-        <div id="minewins">Winnings..</div>
+        <div id="minediff"></div>
+        <div id="minecanv">
+          <canvas id="minecanvas" width="1000" height="100"></canvas>
+          <canvas id="diffcanvas" width="2000" height="100"></canvas>
+          <canvas id="coincanvas" width="2000" height="100"></canvas>
+          <div id="minespeed"></div>
+        </div>
       </div>
 
       <div id="activefront">
-        <div id="wallet"></div>
+        <div id="wallet" onclick="copywal()" ></div>
         <img id="fcc" src="image/fccico.png" height="36" />
         <div id="balance"></div>
         <div id="walnamediv">
@@ -90,6 +93,7 @@
       <div id="transwallets" class="abovebut selectbut" onclick="yourwallets()">Wallets</div>
       <div id="transcontacts" class="abovebut muis" onclick="adrbookinterface()">Contacts</div>
       <div id="create" class="belowbut muis" onclick="createwallet()">Create new wallet</div>
+      <div id="import" class="belowbut muis" onclick="importwallet()">Import wallet</div>
       <div id="passprotect" class="abovebut muis" onclick="passprotect()">Set Password</div>
       <div id="createatrans" class="bottombut selectbut" onclick="createatrans()">Transactions</div>
       <div id="wallets"><div class="space"></div></div>
@@ -110,7 +114,7 @@
           <div id="addtransbut" class="selbut bluebut muis" onclick="addtrans()">Add Transaction</div>
 	        <div id="transerr"></div>
 	        <div id="transoutbox"></div>
-	        <div class="tfnt" style="width: 170px; bottom: 40px;">Wallet for change</div>
+	        <div class="tfnt" style="width: 130px; bottom: 40px;">Change wallet address</div>
 	        <select id="change"></select>
 	        <img id="ttot" src="image/fccico.png" height="24" />
 	        <div id="transtotal">0.00000000</div>
@@ -122,10 +126,13 @@
     <div id="winright">
       <div id="openchat" class="abovebut selectbut muis" onclick="openchat()">Open Chatbox</div>
       <input id="chatauto" type="checkbox" onclick="savechatauto(this.checked)" title="Open on startup and reloads." $CHATAUTO />
-      <input id="chatnick" type="text" class="abovebut selectbut" value="$NICK" onchange="savechatnick(this.value)" placeholder="Chatnick" title="Enter default Chatnick" />
-      <input id="identpass" type="password" class="abovebut selectbut" value="$IDENT" onchange="savechatident(this.value)" placeholder="Identify" title="Enter default Identify Password (register your nick first with NickServ to claim your nickname)" />
       <div id="chat">
         <div id="chatcont" class="cont"></div>
+        <input id="chatnick" type="text" class="belowbut selectbut" value="$NICK" onchange="savechatnick(this.value)" placeholder="Chatnick" title="Enter default Chatnick" />
+        <input id="identpass" type="password" class="belowbut selectbut" value="$IDENT" onchange="savechatident(this.value)" placeholder="Identify" title="Enter default Identify Password (register your nick first with NickServ to claim your nickname)" />
+        <select id="chatzoom" class="abovebut selectbut" onwheel="this.value=this.options[(event.wheelDelta>0 ? this.selectedIndex>0 ? this.selectedIndex-1:this.selectedIndex:this.selectedIndex<this.options.length-1 ? this.selectedIndex+1:this.selectedIndex)].value;this.onchange();" onchange="savechatzoom(this.options[this.selectedIndex].value);" title="Select the Chatbox Zoom Size
+or Scroll with the mouse wheel
+to zoom in and out">$ZOOMOPTION</select>
       </div>
       <div id="status">Welcome to FCC Private Wallet v1.0</div>
     </div>
