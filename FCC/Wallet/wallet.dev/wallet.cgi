@@ -27,7 +27,7 @@ versionCheck();
 sub versionCheck {
   my $github={base => "https://raw.githubusercontent.com/FactorialCoin/base/tree/master"};
   $github->{dev}="$github->{base}/FCC/Wallet/wallet.dev";
-  my $fil  = ['wallet.cgi','wallet.js','wallet.htm','wallet.css','image/clipboard.png','image/del.png','image/favicon-16.png','image/favicon-32.png','image/fccico.png','image/fcclogo.png','image/pause.png','image/pickaxe.gif','image/powerdown.png','image/save.png','image/start.png'];
+  my $fil = ['wallet.cgi','wallet.js','wallet.htm','wallet.css','image/clipboard.png','image/del.png','image/favicon-16.png','image/favicon-32.png','image/fccico.png','image/fcclogo.png','image/pause.png','image/pickaxe.gif','image/powerdown.png','image/save.png','image/start.png'];
   my $version = get('$github->{dev}/version.txt');
   my ($MAIN, $MAJOR, $MINOR) = (substr($VERSION,0,2),substr($VERSION,2,2),substr($VERSION,4,2));
   my ($main, $major, $minor) = (substr($text,0,2),substr($text,2,2),substr($text,4,2));
@@ -52,9 +52,15 @@ sub versionCheck {
     }
     gfio::content("wallet.updated",$version);
     $upd++;
+  }else{
+    # check for missing files after update (new images)
+    my $mss=0;
+    for my $f (@$fil) { if (!-e $f) {
+      if(!$mss){ $mss=1; print "** Updating missing files or images of Version $VERSION .. ** \n" }
+      print "** Updating ($u of ".(1+$#{$fil}).": $f ".(" "x16)."\r";
+      $upd++; my $d=get("$dev/$f"); if($d){ $mss++; gfio::content($f,$d) } 
+    } }
   }
-  # check for missing files after update (new images)
-  for my $f (@$fil) { if (!-e $f) { $upd++; my $d=get("$dev/$f"); if($d){ gfio::content($f,$d) } } }
   if($upd){ print "\n ** Please Restart your wallet.. ** \n"; sleep(2); exit }
 }
 
