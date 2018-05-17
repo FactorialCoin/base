@@ -36,10 +36,10 @@ sub versionCheck {
   my $upd=0;
   if( $version > $VERSION ){ # ipv if( ($main > $MAIN) || ($major > $MAJOR && $main >= $MAIN) || ($minor > $MINOR && $major >= $MAJOR && $main >= $MAIN) ){
     print "** Updating to Version $VERSION to new Version $version .. ** \n";
-    my $u=0;
+    my $up=0;
     for my $f (@$fil) {
-      $u++;
-      print "** Updating ($u of ".(1+$#{$fil}).": $f ".(" "x16)."\r";
+      $up++;
+      print "** Updating ($up of ".(1+$#{$fil}).": $f ".(" "x16)."\r";
       if($f =~ /image\//){
         if(!-e $f){
           my $d=get("$github->{dev}/$f");
@@ -57,7 +57,7 @@ sub versionCheck {
     my $mss=0;
     for my $f (@$fil) { if (!-e $f) {
       if(!$mss){ $mss=1; print "** Updating missing files or images of Current Version $VERSION .. ** \n" }
-      print "** Updating ($u of ".(1+$#{$fil}).": $f ".(" "x16)."\r";
+      print "** Updating ($mss of ".(1+$#{$fil}).": $f ".(" "x16)."\r";
       $upd++; my $d=get("$dev/$f"); if($d){ $mss++; gfio::content($f,$d) } 
     } }
   }
