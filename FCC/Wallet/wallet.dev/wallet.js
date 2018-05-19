@@ -384,6 +384,7 @@ var discon=0;
     var obj=document.getElementById('chatframe');
     var n=document.getElementById('chatnick').value;
     var p=document.getElementById('identpass').value;
+    document.getElementById('chatcont').style.border='0px';
     var c="http://chat.lichtsnel.nl?channel=crypto" + ( n ? '&autologin=1&nick='+escape(n)+( p ? '&pass='+escape(p) : '') : '');
     if (obj) {
       if(confirm('Reopen the Chat Window?')){
@@ -478,6 +479,7 @@ var discon=0;
     document.getElementById('minerrunning').style.display='block';
     document.getElementById('minerstopped').style.display='none';
     document.getElementById('miner').style.display='block';
+    document.getElementById('diffaxe').style.display = 'block';
     document.getElementById('pickaxe').style.display = (new RegExp(document.getElementById('wallet').innerHTML)).test(document.getElementById('minewallet').innerHTML) ? 'block':'none';
     mineout('Started Miner on '+wallet.substr(0,16)+'... !');
     miningwallet=wallet;
@@ -489,6 +491,7 @@ var discon=0;
     document.getElementById('minerrunning').style.display='none';
     document.getElementById('minerstopped').style.display='block';
     document.getElementById('miner').style.display='none';
+    document.getElementById('diffaxe').style.display = 'none';
     document.getElementById('pickaxe').style.display = 'none';
     mineout('Miner stopped!');
     socket.send('stopminer')

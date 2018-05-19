@@ -35,7 +35,7 @@ my $MINERWALLET="";
 my $POWERDOWN=0;
 my $MINERDISCON=0;
 
-my $VERSION = "010103";
+my $VERSION = "010104";
 
 ################################################################################
 ###### Use the file trusted.nodes to force connecting to trusted nodes #########
@@ -270,7 +270,7 @@ sub serverloop {
     }
     $POWERDOWN++
   }
-  usleep(100);
+  usleep($MINING ? 100:10000);
 }
 
 sub challenge {
@@ -298,7 +298,7 @@ sub challenge {
 }
 
 sub mineloop {
-  if (!$MINING) { return }
+  if (!$MINING) { usleep(10000); return }
   my $suggest=$MINEDATA->{tryhint}.perm($MINEDATA->{tryinit},$MINEDATA->{try});
   if (minehash($MINEDATA->{coincount},$suggest) eq $MINEDATA->{challenge}) {
     # found the solution!

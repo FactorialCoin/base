@@ -428,9 +428,17 @@
 
   #pickaxe {
     display: none;
-  	position: absolute;
-  	right: 36px; bottom: 40px;
-  	width: 48px; height: 48px;
+    position: absolute;
+    left: 24px; top: 24px;
+    width: 48px; height: 48px;
+  }
+
+  #diffaxe {
+    display: none;
+    position: absolute;
+    left: 16px; top: 16px;
+    width: 48px; height: 48px;
+    cursor: pointer;
   }
 
 
@@ -910,14 +918,14 @@
     position: absolute;
     right: 6px; top: 6px; width: 64px;
     height:20px;
-    padding:3px 0px 0px 0px;
+    padding:2px 0px 0px 0px;
     font-size:10px;
     line-height: 12px;
     font-family: Courier New;
     text-align: right;
     cursor:pointer;
-    border:ridge 3px #205090;
-    border-top: 0;
+    border:ridge 2px #205090;
+    border-bottom:0px;
   }
 
 
@@ -933,7 +941,7 @@
 
   #chatcont {
     top:26px;
-    border-top: dotted 1px rgba(0,0,0,0.2);
+    border-top: dashed 1px rgba(0,0,0,0.2);
   }
 
   #chatframe {
