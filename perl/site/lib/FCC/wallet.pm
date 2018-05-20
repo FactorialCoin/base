@@ -24,7 +24,6 @@ $VERSION     = '2.11';
 use gfio;
 use gerr;
 use Crypt::Ed25519;
-use Crypt::CBC;
 use JSON qw(decode_json encode_json);
 use FCC::global;
 
@@ -101,7 +100,7 @@ sub createwalletaddress {
 
 sub newwallet {
   my ($name) = @_;
-  if (!$name) { $name = "[ No name ]" }
+  if (!$name) { $name = "" }
   my ($pubkey, $privkey) = Crypt::Ed25519::generate_keypair;
   my $pubhex=octhex($pubkey);
   my $wallet = {

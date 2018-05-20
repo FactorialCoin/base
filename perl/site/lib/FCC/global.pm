@@ -15,11 +15,11 @@ use warnings;
 use Exporter;
 use vars qw($VERSION @ISA @EXPORT @EXPORT_OK);
 
-$VERSION     = '1.01';
+$VERSION     = '1.21';
 @ISA         = qw(Exporter);
-@EXPORT      = qw($FCCVERSION $FCCTIME $FCCMAGIC $FCCSERVERKEY $TRANSTYPES $RTRANSTYPES $MINIMUMFEE $HP
-                  $MINERPAYOUT $MINEBONUS $FCCSERVERIP $FCCSERVERPORT
-                  securehash octhex hexoct hexchar dechex hexdec validh64 encode_base64 decode_base64
+@EXPORT      = qw($COIN $HP setcoin $FCCVERSION $FCCBUILD $FCCTIME $FCCMAGIC $FCCSERVERKEY $TRANSTYPES $RTRANSTYPES
+                  $MINIMUMFEE $MINERPAYOUT $MINEBONUS $FCCSERVERIP $FCCSERVERPORT
+                  prtm securehash octhex hexoct hexchar dechex hexdec validh64 encode_base64 decode_base64
                   fcctime setfcctime fcctimestring extdec doggy calcfee doggyfee fccstring fccencode zb64 b64z);
 @EXPORT_OK   = qw();
 
@@ -30,12 +30,14 @@ use Crypt::Ed25519;
 use Gzip::Faster;
 use gerr qw(error);
 
-our $FCCVERSION = "0101";
+our $COIN = "FCC";
+our $FCCVERSION = "0101"; # ledger version
+our $FCCBUILD = "1.21a";   # software version
 our $FCCTIME = tzoffset();
-our $FCCMAGIC='FF2F89B12F9A29CAB2E2567A7E1B8A27C8FA9BF7A1ABE76FABA7919FC6B6FF0F';
+our $FCCMAGIC = 'FF2F89B12F9A29CAB2E2567A7E1B8A27C8FA9BF7A1ABE76FABA7919FC6B6FF0F';
 our $FCCSERVERIP = '149.210.194.88';
 our $FCCSERVERPORT = 5151;
-our $FCCSERVERKEY="FCC55202FF7F3AAC9A85E22E6990C5ABA8EFBB73052F6EA1867AF7B96AE23FCC";
+our $FCCSERVERKEY = "FCC55202FF7F3AAC9A85E22E6990C5ABA8EFBB73052F6EA1867AF7B96AE23FCC";
 our $MINIMUMFEE = 50;
 our $MINERPAYOUT = 1000000000;
 our $MINEBONUS = 50000000;
@@ -53,6 +55,15 @@ foreach my $k (keys %$TRANSTYPES) {
 our $HP = {}; for (my $i=0;$i<10;$i++) { $HP->{$i}=$i }
 $HP->{'A'}=10; $HP->{'B'}=11; $HP->{'C'}=12; $HP->{'D'}=13; $HP->{'E'}=14; $HP->{'F'}=15; 
 1;
+
+sub setcoin {
+  $COIN=$_[0];
+  if ($COIN eq 'PTTP') {
+    $FCCMAGIC = "8BF879BEC8FA9EC6CA3E7A96B26F7AA76F6AA4E78BADCFA1665A8A9CD67ADD0F";
+    $FCCSERVERPORT = 9612;
+    $FCCSERVERKEY = "1111145AFA4FBB1CF8D406A234C4CC361D797D9F8F561913D479DBC28C7A4F3E";
+  }
+}
 
 sub tzoffset {
   my $t = time();
@@ -276,6 +287,15 @@ sub zb64 {
 sub b64z {
   my ($data) = @_;
   return gunzip(decode_base64($data))
+}
+
+sub prtm {
+  my ($s,$m,$h) = localtime(time + $FCCTIME);
+  if (length($s)<2) { $s="0$s" }
+  if (length($m)<2) { $m="0$m" }
+  if (length($h)<2) { $h="0$h" }
+  print STDOUT "[$h:$m:$s] ";
+  return ""
 }
 
 # EOF FCC::global (C) 2018 Domero

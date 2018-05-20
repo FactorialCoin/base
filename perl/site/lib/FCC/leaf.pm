@@ -34,8 +34,7 @@ use FCC::global;
 use FCC::wallet 2.01 qw(validwallet);
 use FCC::fcc;
 
-my $DEBUG = 0;
-
+my $DEBUG = 1;
 my $LOOPWAIT = 1000; # be nice, release CPU for other processes
 my $FCCFUNCTION='leaf';
 my $CALLER;
@@ -54,6 +53,7 @@ sub startleaf {
   if (!$port) { $port=7050 }
   $FCCFUNCTION='leaf'; if ($miner) { $FCCFUNCTION='miner' }
   $LEAFID++;
+  $|=1;
   my $leaf=gclient::websocket($host,$port,$active,\&handle_leaf);
   if ($leaf->{error}) { print "\nError connecting $FCCFUNCTION: $leaf->{error}\n\n"; return $leaf }
   elsif ($active) {
@@ -73,17 +73,17 @@ sub handle_leaf {
   my ($leaf,$command,$data) = @_;
   if (!$data) { $data="" }
   if ($command eq 'init') {
-    if (!$leaf->{passive}) {
+    if (!$leaf->{passive} && defined $CALLER) {
       # maybe this is a bit too much but enables multiple processes using active leaves within the same run-spece.
       $leaf->{connected}=0;
-      $leaf->{leafcaller}=$CALLER;
+      $leaf->{leafcaller}=$CALLER; $CALLER=undef;
       $leaf->{fccfunction}=$FCCFUNCTION;
       $leaf->{leafid}=$LEAFID;
       $leaf->{outbuffer}=[];
     }
   }
   my $func=$leaf->{leafcaller};
-  if (!$func) { $func=$CALLER }
+  if (!$func) { $leaf->{leafcaller}=$CALLER; $CALLER=undef; $func=$leaf->{leafcaller} }
   if ($DEBUG && ($command ne 'loop')) {
     print " < [LEAF]: $command - $data\n";
   }
@@ -180,7 +180,7 @@ sub handleinput {
   my $cmd=$k->{command};
   my $func=$leaf->{leafcaller};
   if ($k->{error}) {
-    &$func($leaf,'error',{ command => 'error', message => $cmd, error => $k->{error} });
+    &$func($leaf,'error',{ command => $cmd, error => $k->{error} });
     return
   }
   my $proc="c_$cmd";

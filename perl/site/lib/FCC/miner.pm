@@ -33,14 +33,13 @@ sub fac {
 
 sub perm {
   my ($init,$k) = @_;
-  my $n=length($init); my $dn=$n;
+  my $n=length($init);
   my $out=""; my $m=$k;
   for (my $i=0;$i<$n;$i++) {
-    my $ind=$m % $dn;  
-    $out.=substr($init,$ind,1);
-    $m=$m / $dn;  
-    substr($init,$ind,1,substr($init,$dn-1,1));
-    $dn--
+    my $ind=$m % ($n-$i);  
+    $m=$m/($n-$i);  
+    $out.=substr($init,$ind,1);  
+    substr($init,$ind,1,substr($init,$n-$i-1,1))
   }
   return $out
 }
