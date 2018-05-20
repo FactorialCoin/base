@@ -86,6 +86,9 @@ sub createwalletaddress {
   my ($pubkey) = @_;
   my $pubhash=securehash($pubkey);
   my $xor=ord('5') ^ ord('1'); # 4
+  if ($COIN eq 'PTTP') {
+    $xor=ord('1') ^ ord('1');
+  }
   for (my $c=0;$c<64;$c++) {
     $xor ^= ord(substr($pubhash,$c,1)); 
   }
@@ -95,12 +98,16 @@ sub createwalletaddress {
       $checksum=$try->{add}; last
     }
   }
-  return '51'.$pubhash.$checksum;
+  if ($COIN eq 'PTTP') {
+    return '11'.$pubhash.$checksum;
+  } else {
+    return '51'.$pubhash.$checksum;
+  }
 }
 
 sub newwallet {
   my ($name) = @_;
-  if (!$name) { $name = "" }
+  if (!$name) { $name = "[ No name ]" }
   my ($pubkey, $privkey) = Crypt::Ed25519::generate_keypair;
   my $pubhex=octhex($pubkey);
   my $wallet = {
@@ -117,8 +124,13 @@ sub validwallet {
   if (!$wallet) { return 0 }
   $wallet=uc($wallet);
   if (length($wallet) != 68) { return 0 }
-  if (substr($wallet,0,2) ne '51') { return 0 }
-  my $xor=ord('5') ^ ord('1'); # 4
+  my $xor=ord('5') ^ ord('1'); # 4  
+  if ($COIN eq 'PTTP') {
+    $xor=ord('1') ^ ord('1');
+    if (substr($wallet,0,2) ne '11') { return 0 }
+  } else {
+    if (substr($wallet,0,2) ne '51') { return 0 }
+  }
   for (my $c=2;$c<68;$c++) {
     my $h=substr($wallet,$c,1);
     if ((($h ge '0') && ($h le '9')) || (($h ge 'A') && ($h le 'F'))) {
@@ -155,7 +167,7 @@ sub loadwallets {
       if ($winfo->{encoded}) {
         my $seed=substr($winfo->{encoded},0,8);
         my $hash=substr($winfo->{encoded},8);
-        my $phash=securehash($seed.'FCC'.$password);
+        my $phash=securehash($seed.$COIN.$password);
         if ($phash ne $hash) { return [ { error => 'invalid password' } ] }
       }
       $wlist=$winfo->{wlist};
@@ -195,7 +207,7 @@ sub savewallets {
   my $enc="";
   if ($password) {
     my $seed=""; for (my $i=0;$i<8;$i++) { $seed.=hexchar(int rand(16)) }
-    $enc=$seed.securehash($seed."FCC".$password)
+    $enc=$seed.securehash($seed.$COIN.$password)
   }
   my $wcl=[]; 
   foreach my $w (@$wlist) {
@@ -233,7 +245,7 @@ sub validwalletpassword {
       if ($winfo->{encoded}) {
         my $seed=substr($winfo->{encoded},0,8);
         my $hash=substr($winfo->{encoded},8);
-        my $phash=securehash($seed.'FCC'.$password);
+        my $phash=securehash($seed.$COIN.$password);
         return ($phash eq $hash)
       }
     }

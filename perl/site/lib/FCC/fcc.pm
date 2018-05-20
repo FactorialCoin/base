@@ -15,17 +15,17 @@ use warnings;
 use Exporter;
 use vars qw($VERSION @ISA @EXPORT @EXPORT_OK);
 
-$VERSION     = '1.01';
+$VERSION     = '1.21';
 @ISA         = qw(Exporter);
 @EXPORT      = qw(version load save deref processledger collectspendblocks inblocklist saldo readblock readlastblock encodetransaction 
                   addtoledger ledgerdata createcoinbase createtransaction createfeetransaction calculatefee);
 @EXPORT_OK   = qw(walletposlist);
 
 use Crypt::Ed25519;
-use gfio 1.08;
+use gfio 1.10;
 use gerr;
-use FCC::global;
-use FCC::wallet 1.02;
+use FCC::global 1.21;
+use FCC::wallet 2.11;
 use FCC::fccbase;
 
 my $SDB = []; # spendable outblocks in positions (non ordered quick search) => validate
@@ -67,7 +67,11 @@ sub encodetransaction {
     $block.=$TRANSTYPES->{genesis};
     $block.='0'x64; # prev tid
     $block.=dechex($inblock->{fcctime},8);
-    $block.='01'; # 1 out block
+    if ($COIN eq 'PTTP') {
+      $block.='3E'; # 62 out blocks
+    } else {
+      $block.='01'; # 1 out block
+    }
     # replace TID
     my $idhash=securehash(substr($block,136));
     substr($block,8,64,$idhash);
@@ -126,25 +130,53 @@ sub encodetransaction {
   }
   # outblocks
   if ($inblock->{type} eq 'genesis') {
-    # create the genesis out-block (yes the genesis is spendable, weird Satoshi 50 BTC)
-    my $block=dechex(228,4); # relative offset to position of previous block
-    $block.='0000'; # next: to be changed later (when size is known)
-    $block.='x'x64; # tid: to be changed later this sub (when data to hash is knwon)
-    $block.='y'x64; # cumhash, to be filled in later this sub (when tid is knwon)
-    $block.='000000000001'; # block-number = 1
-    $block.=$FCCVERSION;
-    $block.=$TRANSTYPES->{$outblocks->[0]{type}};
-    $block.=substr($blocks->[0],8,64); # prev tid
-    $block.=$outblocks->[0]{wallet}; # FCC-wallet of receiver
-    $block.=dechex($outblocks->[0]{amount},16); # ICO / GIVE AWAY / DEVELOPERS / TESTERS / FIRST JOINERS!!!
-    $block.='0000'; # fee = 0 (wouldn't make any sense since I'm the only node starting it up)
-    # replace TID
-    my $idhash=securehash(substr($block,136));
-    substr($block,8,64,$idhash);
-    # cumulative hash (validates the whole ledger)
-    my $cumhash=securehash($idhash.substr($blocks->[0],72,64));
-    substr($block,72,64,$cumhash);
-    push @$blocks,$block
+    if ($COIN eq 'PTTP') {
+      for (my $b=0;$b<62;$b++) {
+        my $block;
+        if ($b==0) {
+          $block=dechex(228,4); # relative offset to position of previous block
+        } else {
+          $block=dechex(306,4); # relative offset to previous outblock
+        }
+        $block.='0000'; # next: to be changed later (when size is known)
+        $block.='x'x64; # tid: to be changed later this sub (when data to hash is knwon)
+        $block.='y'x64; # cumhash, to be filled in later this sub (when tid is knwon)
+        $block.=dechex($b+1,12); # block-number
+        $block.=$FCCVERSION;
+        $block.=$TRANSTYPES->{$outblocks->[0]{type}};
+        $block.=substr($blocks->[0],8,64); # prev tid
+        $block.=$outblocks->[0]{wallet}; # FCC-wallet of receiver
+        $block.=dechex($outblocks->[0]{amount},16); # ICO / GIVE AWAY / DEVELOPERS / TESTERS / FIRST JOINERS!!!
+        $block.='0000'; # fee = 0 (wouldn't make any sense since I'm the only node starting it up)
+        # replace TID
+        my $idhash=securehash(substr($block,136));
+        substr($block,8,64,$idhash);
+        # cumulative hash (validates the whole ledger)
+        my $cumhash=securehash($idhash.substr($blocks->[0],72,64));
+        substr($block,72,64,$cumhash);
+        push @$blocks,$block
+      }
+    } else {
+      # create the genesis out-block (yes the genesis is spendable, weird Satoshi 50 BTC)
+      my $block=dechex(228,4); # relative offset to position of previous block
+      $block.='0000'; # next: to be changed later (when size is known)
+      $block.='x'x64; # tid: to be changed later this sub (when data to hash is knwon)
+      $block.='y'x64; # cumhash, to be filled in later this sub (when tid is knwon)
+      $block.='000000000001'; # block-number = 1
+      $block.=$FCCVERSION;
+      $block.=$TRANSTYPES->{$outblocks->[0]{type}};
+      $block.=substr($blocks->[0],8,64); # prev tid
+      $block.=$outblocks->[0]{wallet}; # FCC-wallet of receiver
+      $block.=dechex($outblocks->[0]{amount},16); # ICO / GIVE AWAY / DEVELOPERS / TESTERS / FIRST JOINERS!!!
+      $block.='0000'; # fee = 0 (wouldn't make any sense since I'm the only node starting it up)
+      # replace TID
+      my $idhash=securehash(substr($block,136));
+      substr($block,8,64,$idhash);
+      # cumulative hash (validates the whole ledger)
+      my $cumhash=securehash($idhash.substr($blocks->[0],72,64));
+      substr($block,72,64,$cumhash);
+      push @$blocks,$block
+    }
   } elsif (($inblock->{type} eq 'in') || ($inblock->{type} eq 'coinbase') || ($inblock->{type} eq 'fee')) {
     foreach my $outblock (@$outblocks) {
       my $block=dechex($pin->{size},4);
@@ -186,6 +218,13 @@ sub encodetransaction {
 }
 
 sub creategenesis {
+  if ($COIN eq 'PTTP') {
+    use FCC::pttp;
+    my $blocks=pttpgenesis();
+    $blocks=encodetransaction($blocks);
+    addtoledger($blocks); save();
+    return
+  }
   my $wallet=loadwallet();
   if (!$wallet) { $wallet=newwallet(); savewallet($wallet) }
   my $inblock = {
@@ -256,7 +295,7 @@ sub save {
 }
 
 sub load {
-  if (!-e 'ledger.fcc') { gfio::create('ledger.fcc',''); return }
+  if (!-e 'ledger.fcc') { killdb(); gfio::create('ledger.fcc',''); return }  
   my $lastblock=readlastblock(); my $pos=0; my $cumhash='init';
   if (-e 'savepoint.fcc') {
     my $data=gfio::content('savepoint.fcc');
@@ -566,7 +605,7 @@ sub processblock {
     $md->{outtogo}=$bi->{nout};
   } 
   if ($bi->{type} eq $TRANSTYPES->{genesis}) {
-    if ($bi->{tcum} ne 'FF2F89B12F9A29CAB2E2567A7E1B8A27C8FA9BF7A1ABE76FABA7919FC6B6FF0F') {
+    if ($bi->{tcum} ne $FCCMAGIC) {
       illegalblock($bi,$pbi,"This ledger is not the original FCC ledger!","Initstring: $bi->{tcum}");
       if ($LEDGERERROR) { return }
     }
@@ -795,6 +834,9 @@ sub saveledgerdata {
     my $last = { prev => 0, pos => 0, next => 0, num => -1, tid => '0'x64 };
     my $bi = { prev => 0, pos => 0, num => 0 };
     my $numblocks=2; my $pos=0;
+    if ($COIN eq 'PTTP') {
+      $numblocks=63
+    }
     while ($numblocks>0) {
       my $block=shift @$LEDGERSTACK;
       $bi->{next}=length($block);

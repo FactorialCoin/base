@@ -20,7 +20,7 @@ use vars qw($VERSION @ISA @EXPORT @EXPORT_OK);
 $VERSION     = '2.01';
 @ISA         = qw(Exporter gclient);
 @EXPORT      = qw();
-@EXPORT_OK   = qw(startleaf leafloop outnode closeleaf balance);
+@EXPORT_OK   = qw(startleaf leafloop outnode closeleaf balance solution sign transfer);
 
 use JSON;
 use gerr qw(error);
@@ -28,13 +28,14 @@ use gfio 1.10;
 use Digest::SHA qw(sha256_hex sha512_hex);
 use IO::Socket::INET;
 use gclient 7.2.2;
-use gserv 3.1.2 qw(prtm);
+use gserv 3.1.2;
 use Time::HiRes qw(gettimeofday usleep);
 use FCC::global;
 use FCC::wallet 2.01 qw(validwallet);
 use FCC::fcc;
 
-my $DEBUG = 1;
+my $DEBUG = 0;
+
 my $LOOPWAIT = 1000; # be nice, release CPU for other processes
 my $FCCFUNCTION='leaf';
 my $CALLER;
@@ -53,12 +54,8 @@ sub startleaf {
   if (!$port) { $port=7050 }
   $FCCFUNCTION='leaf'; if ($miner) { $FCCFUNCTION='miner' }
   $LEAFID++;
-  $|=1;
   my $leaf=gclient::websocket($host,$port,$active,\&handle_leaf);
   if ($leaf->{error}) { print "\nError connecting $FCCFUNCTION: $leaf->{error}\n\n"; return $leaf }
-  elsif ($active) {
-    start(@_)
-  }
   $leaf->{connected}=0;
   $leaf->{leafcaller}=$caller;
   $leaf->{passive}=1;
@@ -73,17 +70,19 @@ sub handle_leaf {
   my ($leaf,$command,$data) = @_;
   if (!$data) { $data="" }
   if ($command eq 'init') {
-    if (!$leaf->{passive} && defined $CALLER) {
+    if (!$leaf->{passive}) {
       # maybe this is a bit too much but enables multiple processes using active leaves within the same run-spece.
       $leaf->{connected}=0;
-      $leaf->{leafcaller}=$CALLER; $CALLER=undef;
+      $leaf->{leafcaller}=$CALLER;
       $leaf->{fccfunction}=$FCCFUNCTION;
       $leaf->{leafid}=$LEAFID;
       $leaf->{outbuffer}=[];
+    } else {
+      return
     }
   }
   my $func=$leaf->{leafcaller};
-  if (!$func) { $leaf->{leafcaller}=$CALLER; $CALLER=undef; $func=$leaf->{leafcaller} }
+  if (!$func) { $func=$CALLER }
   if ($DEBUG && ($command ne 'loop')) {
     print " < [LEAF]: $command - $data\n";
   }
@@ -124,7 +123,9 @@ sub leafloop {
   foreach my $leaf (@$LEAVES) {
     if ($leaf->{connected}) {
       if ( $#{$leaf->{outbuffer}} >= 0 ) {
-        gclient::wsout($leaf,encode_json(shift @{$leaf->{outbuffer}}));
+        my $json=JSON->new->allow_nonref;
+        my $data=shift @{$leaf->{outbuffer}};
+        gclient::wsout($leaf,$json->encode($data));
       }
     }
     $leaf->takeloop()
@@ -133,6 +134,7 @@ sub leafloop {
 
 sub closeleaf {
   my ($leaf,$msg) = @_;
+  print " !! Closing leaf $leaf->{host}:$leaf->{port}\n";
   if (!$msg) { $msg='Closed' }
   my $func=$leaf->{leafcaller};
   &$func($leaf,'terminated', { message => $msg });
@@ -176,11 +178,12 @@ sub solution {
 
 sub handleinput {
   my ($leaf,$data) = @_;
-  my $k=decode_json($data);
+  my $json = JSON->new->allow_nonref;
+  my $k=$json->decode($data);
   my $cmd=$k->{command};
   my $func=$leaf->{leafcaller};
   if ($k->{error}) {
-    &$func($leaf,'error',{ command => $cmd, error => $k->{error} });
+    &$func($leaf,'error',{ command => 'error', message => $cmd, error => $k->{error} });
     return
   }
   my $proc="c_$cmd";
@@ -208,6 +211,8 @@ sub c_hello {
 
 sub c_quit {
   my ($leaf,$k) = @_;
+  my $func=$leaf->{leafcaller};
+  &$func($leaf,'disconnect',{ message => $k->{message} });
   $leaf->quit()
 }
 
