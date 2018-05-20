@@ -32,7 +32,7 @@ use Digest::SHA1 qw(sha1);
 use Gzip::Faster;
 use vars qw($VERSION @ISA @EXPORT @EXPORT_OK);
 
-$VERSION     = '7.4.1';
+$VERSION     = '7.4.1'; # clients are more difficult then servers, the kernel-version-numbers proof it! LIBERTA!
 @ISA         = qw(Exporter);
 @EXPORT      = ();
 @EXPORT_OK   = qw(openconnection in out websocket tcpip spliturl wsmsg wsquit wsinput localip website);
@@ -73,6 +73,7 @@ sub openconnection {
   $self->{connectlooptime}=0.01,
   $self->{waitforinput}=1;
   $self->{connectcallback}=$connectcallback;
+  $self->{connected}=gettimeofday();
 
   # Connect to server
   my $proto = (getprotobyname('tcp'))[2];
@@ -139,10 +140,6 @@ sub openconnection {
     $self->{socket}=$sock;
   }
 
-  $self->{connected}=gettimeofday();
-
-  #$|=1;
-
   # Set output to console
   select(STDOUT); binmode(STDOUT); $|=1;
   $self->{selector}=IO::Select->new($sock);
@@ -166,7 +163,7 @@ sub connectready {
       my $callback=$self->{connectcallback};
       &$callback($self,$tm)
     }
-  } else {
+  } elsif ($self->{connected}) {
     my $tm=gettimeofday()-$self->{connected};
     if ($tm>$self->{timeout}) {
       $self->{error}="Could not establish connection to server [$self->{host}:$self->{port}]";
@@ -176,8 +173,8 @@ sub connectready {
 }
 
 sub dummycaller {
-
-}
+  my ($client,$cmd,$data) = @_;
+}  
 
 sub canread {
   my ($self) = @_;
@@ -380,7 +377,7 @@ sub outloop {
     }
   } else {
     $self->{output}=0
-  }  
+  }
 }
 
 sub outburst {

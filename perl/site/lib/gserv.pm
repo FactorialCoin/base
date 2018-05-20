@@ -60,9 +60,9 @@ use HTTP::Date;
 use Exporter;
 use vars qw($VERSION @ISA @EXPORT @EXPORT_OK);
 
-$VERSION     = '4.1.1';
+$VERSION     = '4.1.1'; # still 1.1? Finally stable?
 @ISA         = qw(Exporter);
-@EXPORT      = ();
+@EXPORT      = qw(wsmessage);
 @EXPORT_OK   = qw(prtm localip init start wsmessage out burst takeloop broadcast wsbroadcast broadcastfunc httpresponse);
 
 my $CID = 0;
