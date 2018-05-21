@@ -104,8 +104,6 @@ my $MINING=0;
 my @SOLMINER=();
 my $CALLBACKTIME=0;
 
-my $prouted={};
-
 $SIG{'INT'}=\&intquit;
 $SIG{'TERM'}=\&termquit;
 $SIG{'PIPE'}=\&sockquit;
@@ -1746,7 +1744,7 @@ sub c_vote {
   }
   $VOTE->{responses}[$k->{round}]{$client->{mask}}={ 
     node => $client, round => $k->{round}, transhash => $k->{transhash}, ledgerlen => $k->{ledgerlen},
-    illegal => $k->{illegal}, consensus => $k->{consensus} 
+    tcum => $k->{tcum}, illegal => $k->{illegal}, consensus => $k->{consensus} 
   };
   $VOTE->{received}[$k->{round}]++;
 }
@@ -1929,8 +1927,6 @@ sub votesuggest {
   if ($VOTING) { return }
   if ($ADDCOINBASE) { return }
 
-  $prouted={};
-
   # auto garbage collection
   $TRANSCATCHUP={};
 
@@ -2006,11 +2002,6 @@ sub analysevotes {
 
   if (!$VOTING) { return }
 
-  if (!$prouted->{$VOTE->{round}}) {
-    #prout "Voting Round = $VOTE->{round} Total = $VOTE->{total}\n";
-    $prouted->{$VOTE->{round}}=1
-  }
-
   my $action=0; my $tm=gettimeofday();
   if (!$VOTE->{received}[$VOTE->{round}]) {
     $VOTE->{received}[$VOTE->{round}]=0;
@@ -2079,7 +2070,7 @@ sub analysevotes {
           }
         }
         my @sch = sort { $lch->{$b} <=> $lch->{$a} } keys %$lch;
-        if (($#sch>=0) && ($sch[0] != $LASTBLOCK->{tcum})) {
+        if (($#sch>=0) && ($sch[0] ne $LASTBLOCK->{tcum})) {
           # Desynced !!!
           killserver("Unfortunately we are desynced. Delete ledger.fcc and restart the node."); return
         }

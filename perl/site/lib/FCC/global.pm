@@ -32,7 +32,7 @@ use gerr qw(error);
 
 our $COIN = "FCC";
 our $FCCVERSION = "0101"; # ledger version
-our $FCCBUILD = "1.21a";   # software version
+our $FCCBUILD = "1.21b";   # software version
 our $FCCTIME = tzoffset();
 our $FCCMAGIC = 'FF2F89B12F9A29CAB2E2567A7E1B8A27C8FA9BF7A1ABE76FABA7919FC6B6FF0F';
 our $FCCSERVERIP = '149.210.194.88';
