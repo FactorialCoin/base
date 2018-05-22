@@ -68,7 +68,7 @@ $SIG{'PIPE'}=\&sockquit;
 $SIG{__DIE__}=\&fatal;
 $SIG{__WARN__}=\&fatal;
 
-versionCheck();
+#versionCheck();
 
 ################################################################################
 
@@ -236,7 +236,7 @@ sub loopclient {
 
 sub serverloop {
   if (!$WEBSITEINIT) {
-    print " * Opening wallet website\n";    
+    print " * Opening wallet website\n";
     open_browser("http://127.0.0.1:$PORT");
     $WEBSITEINIT=1
   }
