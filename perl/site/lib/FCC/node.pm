@@ -1319,11 +1319,11 @@ sub handleserver {
       if (($FCCINIT == 3) && ($UPDATEMODE == 4)) {
         print " < Callback connection established\n";
       } else {
-        prout " x illegal connect $client->{ip}\n";
+        prout "   x illegal connect $client->{ip}\n";
         killclient($client,'Trying to connect to non initialised node');
       }
     } else {
-      prout " + connected $client->{ip}\n";
+      prout "   + connected $client->{ip}\n";
       outjson($client,{ command => 'hello', version => $FCCVERSION, host=>$SERVER->{fcc}{host}, port=>$SERVER->{fcc}{port} });
     }
   } elsif ($command eq 'input') {
