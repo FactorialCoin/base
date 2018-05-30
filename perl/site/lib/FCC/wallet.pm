@@ -15,7 +15,7 @@ use warnings;
 use Exporter;
 use vars qw($VERSION @ISA @EXPORT @EXPORT_OK);
 
-$VERSION     = '2.11';
+$VERSION     = '2.12';
 @ISA         = qw(Exporter);
 @EXPORT      = qw(publichash validatehash createwalletaddress walletexists walletisencoded validwalletpassword
                   newwallet validwallet loadwallet loadwallets savewallet savewallets);
@@ -38,7 +38,7 @@ createtable();
 # Wallet structure
 #
 # offset length  content
-#      0      2  '51' - FCC identifier
+#      0      2  '51' - FCC identifier (11 for PTTP)
 #      2     64  Public hashkey
 #     66      2  Checksum, xor ascii values 0-65 must be 0
 #
@@ -56,12 +56,11 @@ sub createtable {
 }
 
 sub findwallet {
-  if (-e "../wallet") {
-    $WALLETDIR="../wallet/"
-  } elsif (-e "./wallet") {
-    $WALLETDIR="./wallet/"
-  } elsif (-e "../wallet.fcc") {
-    $WALLETDIR="../"
+  if (!-f $WALLETDIR."wallet$FCCEXT") {
+    if (-f "./wallet/wallet$FCCEXT") {  $WALLETDIR="./wallet/" }
+    elsif (-f "../wallet$FCCEXT") {  $WALLETDIR="../" }
+    elsif (-f "../wallet/wallet$FCCEXT") { $WALLETDIR="../wallet/" }
+    elsif (-d "./wallet") {  $WALLETDIR="./wallet/" }
   }
 }
 
@@ -144,12 +143,12 @@ sub validwallet {
 }
 
 sub walletexists {
-  return (-e $WALLETDIR.'wallet.fcc')
+  return (-e $WALLETDIR."wallet$FCCEXT")
 }
 
 sub walletisencoded {
-  if (-e $WALLETDIR.'wallet.fcc') {
-    my $winfo=decode_json(gfio::content($WALLETDIR.'wallet.fcc'));
+  if (-e $WALLETDIR.'wallet$FCCEXT') {
+    my $winfo=decode_json(gfio::content($WALLETDIR."wallet$FCCEXT"));
     if (ref($winfo) eq 'HASH') {
       if ($winfo->{encoded}) { return 1 }
     }
@@ -160,8 +159,8 @@ sub walletisencoded {
 sub loadwallets {
   my ($password) = @_;
   my $wlist=[];
-  if (-e $WALLETDIR.'wallet.fcc') {
-    my $winfo=decode_json(gfio::content($WALLETDIR.'wallet.fcc'));
+  if (-e $WALLETDIR."wallet$FCCEXT") {
+    my $winfo=decode_json(gfio::content($WALLETDIR."wallet$FCCEXT"));
     if (ref($winfo) eq 'HASH') {
       # wallet v2+
       if ($winfo->{encoded}) {
@@ -219,7 +218,7 @@ sub savewallets {
     }
     push @$wcl,{ wallet => $w->{wallet}, name => $name, pubkey => $pub, privkey => $priv }
   }
-  gfio::create($WALLETDIR.'wallet.fcc',encode_json({ encoded => $enc, version => '2.1', wlist => $wcl }))
+  gfio::create($WALLETDIR."wallet$FCCEXT",encode_json({ encoded => $enc, version => '2.1', wlist => $wcl }))
 }
 
 sub loadwallet {
@@ -239,8 +238,8 @@ sub loadwallet {
 
 sub validwalletpassword {
   my ($password) = @_;
-  if (-e $WALLETDIR.'wallet.fcc') {
-    my $winfo=decode_json(gfio::content($WALLETDIR.'wallet.fcc'));
+  if (-e $WALLETDIR."wallet$FCCEXT") {
+    my $winfo=decode_json(gfio::content($WALLETDIR."wallet$FCCEXT"));
     if (ref($winfo) eq 'HASH') {
       if ($winfo->{encoded}) {
         my $seed=substr($winfo->{encoded},0,8);
