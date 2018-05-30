@@ -36,7 +36,7 @@ my $MINERWALLET="";
 my $POWERDOWN=0;
 my $MINERDISCON=0;
 
-my $VERSION = "010101";
+my $VERSION = "010201";
 
 ################################################################################
 ###### Use the file trusted.nodes to force connecting to trusted nodes #########
