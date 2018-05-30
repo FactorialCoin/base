@@ -27,7 +27,7 @@ use Crypt::Ed25519;
 use JSON qw(decode_json encode_json);
 use FCC::global;
 
-my $WALLETDIR="./";
+my $WALLETDIR=".";
 &findwallet();
 
 my @WXOR = ();
@@ -56,11 +56,11 @@ sub createtable {
 }
 
 sub findwallet {
-  if (!-f $WALLETDIR."wallet$FCCEXT") {
-    if (-f "./wallet/wallet$FCCEXT") {  $WALLETDIR="./wallet/" }
-    elsif (-f "../wallet$FCCEXT") {  $WALLETDIR="../" }
-    elsif (-f "../wallet/wallet$FCCEXT") { $WALLETDIR="../wallet/" }
-    elsif (-d "./wallet") {  $WALLETDIR="./wallet/" }
+  if (!-f "$WALLETDIR/wallet$FCCEXT") {
+    if (-f "./wallet/wallet$FCCEXT") {  $WALLETDIR="./wallet" }
+    elsif (-f "../wallet$FCCEXT") {  $WALLETDIR=".." }
+    elsif (-f "../wallet/wallet$FCCEXT") { $WALLETDIR="../wallet" }
+    elsif (-d "./wallet") {  $WALLETDIR="./wallet" }
   }
 }
 
@@ -143,12 +143,12 @@ sub validwallet {
 }
 
 sub walletexists {
-  return (-e $WALLETDIR."wallet$FCCEXT")
+  return (-e "$WALLETDIR/wallet$FCCEXT")
 }
 
 sub walletisencoded {
-  if (-e $WALLETDIR.'wallet$FCCEXT') {
-    my $winfo=decode_json(gfio::content($WALLETDIR."wallet$FCCEXT"));
+  if (-e "$WALLETDIR/wallet$FCCEXT") {
+    my $winfo=decode_json(gfio::content("$WALLETDIR/wallet$FCCEXT"));
     if (ref($winfo) eq 'HASH') {
       if ($winfo->{encoded}) { return 1 }
     }
@@ -159,8 +159,8 @@ sub walletisencoded {
 sub loadwallets {
   my ($password) = @_;
   my $wlist=[];
-  if (-e $WALLETDIR."wallet$FCCEXT") {
-    my $winfo=decode_json(gfio::content($WALLETDIR."wallet$FCCEXT"));
+  if (-e "$WALLETDIR/wallet$FCCEXT") {
+    my $winfo=decode_json(gfio::content("$WALLETDIR/wallet$FCCEXT"));
     if (ref($winfo) eq 'HASH') {
       # wallet v2+
       if ($winfo->{encoded}) {
@@ -218,7 +218,7 @@ sub savewallets {
     }
     push @$wcl,{ wallet => $w->{wallet}, name => $name, pubkey => $pub, privkey => $priv }
   }
-  gfio::create($WALLETDIR."wallet$FCCEXT",encode_json({ encoded => $enc, version => '2.1', wlist => $wcl }))
+  gfio::create("$WALLETDIR/wallet$FCCEXT",encode_json({ encoded => $enc, version => '2.1', wlist => $wcl }))
 }
 
 sub loadwallet {
@@ -238,8 +238,8 @@ sub loadwallet {
 
 sub validwalletpassword {
   my ($password) = @_;
-  if (-e $WALLETDIR."wallet$FCCEXT") {
-    my $winfo=decode_json(gfio::content($WALLETDIR."wallet$FCCEXT"));
+  if (-e "$WALLETDIR/wallet$FCCEXT") {
+    my $winfo=decode_json(gfio::content("$WALLETDIR/wallet$FCCEXT"));
     if (ref($winfo) eq 'HASH') {
       if ($winfo->{encoded}) {
         my $seed=substr($winfo->{encoded},0,8);
