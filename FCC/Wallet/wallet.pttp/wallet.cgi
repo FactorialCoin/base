@@ -310,7 +310,6 @@ sub mineloop {
   if (minehash($MINEDATA->{coincount},$suggest) eq $MINEDATA->{challenge}) {
     # found the solution!
     if($MINEDATA->{init}){
-      my $solhash=solhash($MINERWALLET,$suggest);
       print " **!! SOLUTION !!** $suggest\n";
       $MINER->solution($MINERWALLET,$suggest);
     }else{
@@ -403,8 +402,8 @@ sub addwallets {
     my $name=""; if ($wallet->{name}) { $name=$wallet->{name} }
     wsmessage($client,"addwallet $wallet->{wallet} $name")
   }
-  if (-e 'addressbook.fcc') {
-    my $cont=gfio::content('addressbook.fcc');
+  if (-e "addressbook.$FCCEXT") {
+    my $cont=gfio::content("addressbook.$FCCEXT");
     my @lines=split(/\n/,$cont);
     foreach my $line (@lines) {
       wsmessage($client,"adrbook $line")
@@ -537,10 +536,10 @@ sub handle {
     } elsif ($data =~ /^adrbook ([^\s]+) (.+)$/) {
       my $wallet=$1; my $name=$2;
       if (validwallet($wallet)) {
-        if (-w 'addressbook.fcc') {
-          gfio::append('addressbook.fcc',"\n$wallet $name")
+        if (-w "addressbook.$FCCEXT") {
+          gfio::append("addressbook.$FCCEXT","\n$wallet $name")
         } else {
-          gfio::create('addressbook.fcc',"$wallet $name")
+          gfio::create("addressbook.$FCCEXT","$wallet $name")
         }
         status($client,"Added '$name' to addressbook");
         wsmessage($client,"adrbook $wallet $name")
@@ -550,7 +549,7 @@ sub handle {
     } elsif ($data =~ /^chadrbook ([^\s]+) (.+)$/) {
       my $wallet=$1; my $name=$2;
       if (!defined $name) { $name='' }
-      my $data=gfio::content('addressbook.fcc');
+      my $data=gfio::content("addressbook.$FCCEXT");
       my @alist=split(/\n/,$data); my @out=();
       foreach my $entry (@alist) {
         my ($wal,@nlist) = split(/ /,$entry);
@@ -560,10 +559,10 @@ sub handle {
           push @out,$entry
         }
       }
-      gfio::create('addressbook.fcc',join("\n",@out))
+      gfio::create("addressbook.$FCCEXT",join("\n",@out))
     } elsif ($data =~ /^deladrbook (.+)$/) {
       my $wallet=$1;
-      my $data=gfio::content('addressbook.fcc');
+      my $data=gfio::content("addressbook.$FCCEXT");
       my @alist=split(/\n/,$data); my @out=();
       foreach my $entry (@alist) {
         my ($wal,@nlist) = split(/ /,$entry);
@@ -571,7 +570,7 @@ sub handle {
           push @out,$entry
         }
       }
-      gfio::create('addressbook.fcc',join("\n",@out))
+      gfio::create("addressbook.$FCCEXT",join("\n",@out))
     } elsif ($data =~ /^checktrans ([^\s]+) ([^\s]+) (.+)/) {
       my $wallet=$1; my $amount=$2; my $fee=$3;
       if (!validwallet($wallet)) {
@@ -674,7 +673,7 @@ sub handle {
     }
     $client->{killafteroutput}=1
   }
-  usleep(10000)
+  usleep($MINING ? 100:10000);
 }
 
 sub burstfile {
