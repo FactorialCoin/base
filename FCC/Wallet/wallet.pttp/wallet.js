@@ -206,6 +206,7 @@ var discon=0;
       if (connected) {
         document.getElementById('powerbutton').style.background='rgba(255,0,0,0.5)';
         chatout("** Lost connection to the WebSocket Server. Please refresh.");
+        setTimeout(start,1000);
       }
       gorefresh()
     }
@@ -223,6 +224,8 @@ var discon=0;
   	connect();
     document.getElementById('body').style.backgroundImage="url(image/pttpbg.png)";
     document.getElementById('transoutbox').style.backgroundImage="url(image/pttpcoin.gif)";
+    document.getElementById('graybg').style.visibility='hidden';
+    document.getElementById('refresh').style.visibility='hidden';
     $AUTOSTART
   }
   function powerDownWallet(){
