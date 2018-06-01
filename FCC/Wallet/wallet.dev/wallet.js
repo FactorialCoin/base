@@ -25,20 +25,25 @@
   }
   
   function mineout(txt) {
-    if ((/New challenge:/gi).test(txt)) {
-      mtime=Date.now()/1000;
+    var st=document.getElementById('mineoutput');
+    if ((/New challenge:/gi).test(txt) || (/Next challenge:/gi).test(txt)) {
       var sd=document.getElementById('minediff');
-      var arg = txt.replace('New challenge: ','').split(' ');
-      var cha={
+      var arg = txt.replace('New challenge: ','').replace('Next challenge: ','').split(' ');
+      var cha={ // Next challenge: Coincount = 4709 Difficulty = 479001600 Reward = 1000000000 Len = 13 Hints = AL eHints = EHKJAL Init = LJAF
         coin: arg[2],
         diff: arg[5],
         rewa: arg[8],
         leng: arg[11],
-        hint: arg[14].split('')
+        hint: arg[14] ? arg[14].split('') : '',
+        ehint: arg[17] ? arg[17].split('') : '',
+        init: arg[20] ? arg[20].split('') : ''
       };
       cha.hint.sort();
-      drawDiff(Number(cha.diff));
-      drawCoin(0);
+      if ((/New challenge:/gi).test(txt)) {
+        mtime=Date.now()/1000;
+        drawDiff(Number(cha.diff));
+        drawCoin(0);
+      }
       sd.innerHTML =
       '<table cellspacing=0 cellpadding=0 border=0 id="cointable">'+
         '<tr><th>Reward:</th><td id="coinreward">'+cha.rewa+'</td><th>Won:</th><td id="coinwon"></td></tr>'+
@@ -47,13 +52,15 @@
         '<tr><th>Length:</th><td id="coinlength">'+cha.leng+'</td><th>Sec:</th><td id="coinsec">0</td></tr>'+
         '<tr><th>Hints:</th><td id="coinhint">'+cha.hint.length+'</td><td colspan="2">'+cha.hint.join(',')+'</td></tr>'+
       '</table>';
-      if(solutionFound || miningstart) { solutionFound=0; miningstart=0 }
-      else{
-        var st=document.getElementById('mineoutput');
-        st.innerHTML += "<br><font color='red'> Lost This Round :-/ </font>";
-        lost++;
-        addStat(0);
-        wininfo();
+      wininfo();
+      if((/New challenge:/gi).test(txt)){
+        if(solutionFound || miningstart) { solutionFound=0; miningstart=0 }
+        else{
+          var st=document.getElementById('mineoutput');
+          st.innerHTML += "<br><font color='red'> Lost This Round :-/ </font>";
+          lost++;
+          addStat(0);
+        }
       }
     }
     else if ((/Speed:/gi).test(txt)) {
@@ -71,7 +78,6 @@
       cp.innerHTML = fhs[1]+'%';
     }
     else if ((/Found solution/gi).test(txt)) {
-      var st=document.getElementById('mineoutput');
       st.innerHTML += "<br>" + txt;
       wins++;
       wininfo();
@@ -80,15 +86,14 @@
     }
     else{
       wininfo();
-      var st=document.getElementById('mineoutput');
       st.innerHTML += "<br>" + txt;
       var lines=(st.innerHTML+"").split('<br>');
       if (lines.length>10) {
         lines.shift();
         st.innerHTML = lines.join("<br>");
       }
-      st.scrollTop=st.scrollHeight;
     }
+    st.scrollTop=st.scrollHeight;
   }
 
 function kstr (num) {
@@ -201,6 +206,7 @@ var discon=0;
       if (connected) {
         document.getElementById('powerbutton').style.background='rgba(255,0,0,0.5)';
         chatout("** Lost connection to the WebSocket Server. Please refresh.");
+        setTimeout(start,1000);
       }
       gorefresh()
     }
@@ -216,6 +222,9 @@ var discon=0;
   }
   function start() {
   	connect();
+    document.getElementById('body').style.backgroundImage="url(image/fccbg.png)";
+    document.getElementById('graybg').style.visibility='hidden';
+    document.getElementById('refresh').style.visibility='hidden';
     $AUTOSTART
   }
   function powerDownWallet(){
