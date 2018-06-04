@@ -72,7 +72,7 @@ $SIG{'PIPE'}=\&sockquit;
 $SIG{__DIE__}=\&fatal;
 $SIG{__WARN__}=\&fatal;
 
-#versionCheck();
+versionCheck();
 
 ################################################################################
 
