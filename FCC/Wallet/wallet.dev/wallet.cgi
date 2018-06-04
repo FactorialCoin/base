@@ -18,6 +18,7 @@ use FCC::leaf 2.01 qw(startleaf leafloop closeleaf);
 use gerr qw(error);
 use JSON;
 
+
 my $DEBUG = 1;
 my $INIT = 0;
 my $SERVER;
@@ -42,6 +43,9 @@ my $VERSION = "010104";
 
 my $TRUSTEDNODES=(-e "trusted.nodes" ? decode_json(gfio::content("trusted.nodes")) : []);
 my $FORCENODE; if($#$TRUSTEDNODES>-1){ $FORCENODE=$TRUSTEDNODES->[int(rand()*(1+$#$TRUSTEDNODES))] }
+
+my $TRUSTEDPOOLS=(-e "pool.nodes" ? decode_json(gfio::content("pool.nodes")) : []);
+my $MINERNODE; if($#$TRUSTEDPOOLS>-1){ $MINERNODE=$TRUSTEDPOOLS->[int(rand()*(1+$#$TRUSTEDPOOLS))] }
 
 ################################################################################
 # Local Wallet Listen Port
@@ -216,11 +220,13 @@ sub loopclient {
           print "Starting Miner\n";
           if(!$MINING || !$MINER || $MINERDISCON){
             $MINERDISCON=0;
-            print "Opening Node Connection\n";
+            print "Opening Miners Node Connection: $client->{fcc}{leafip}:$client->{fcc}{leafport}\n";
             $MINER=startleaf($client->{fcc}{leafip},$client->{fcc}{leafport},\&slaveminercall,0,1);
           }
           if ($MINER->{error}) {
             print " ! Error starting miner - $MINER->{error}\n"
+          } elsif ($MINER->{quit}) {
+            print " ! Error starting miner - Connection Quit\n"
           } else {
             $MINER->{client}=$client;
             print " * Miner sucessfully started .. may the FCC be with you ;)\n"
@@ -275,22 +281,44 @@ sub serverloop {
 
 sub challenge {
   my ($data) = @_;
+  if(!defined $data->{init}){ $data->{init}="" }
+  if($MINEDATA){
+    if($MINEDATA->{coincount} ne $data->{coincount}){
+      $data->{minestart}=gettimeofday(); 
+      $data->{timeblock}=0;
+      $data->{fhash}=0;
+      $data->{hashtot}=0;
+    }else{
+      $data->{minestart}=$MINEDATA->{minestart};
+      $data->{timeblock}=$MINEDATA->{timeblock};
+      $data->{fhash}=$MINEDATA->{fhash};
+      $data->{hashtot}=$MINEDATA->{hashtot};
+    }
+  }else{
+      $data->{minestart}=gettimeofday(); 
+      $data->{timeblock}=0;
+      $data->{fhash}=0;
+      $data->{hashtot}=0;
+  }
   $MINEDATA=$data; $MINING=1;
-  $MINEDATA->{minestart}=gettimeofday(); $MINEDATA->{timeblock}=0; $MINEDATA->{fhash}=0; $MINEDATA->{hashtot}=0;
-  if ($MINEDATA->{hints}) {
-    $MINEDATA->{hints}=perm($MINEDATA->{hints},int(rand(fac(length($MINEDATA->{hints})))));
-    $MINEDATA->{hintpos}=0;
-    $MINEDATA->{tryhint}=substr($MINEDATA->{hints},0,1);
-    if ($MINER->{client}) { wsmessage($MINER->{client},"miner Trying suggestion $MINEDATA->{tryhint}") }
-    print " * Trying suggestion $MINEDATA->{tryhint}     \n";
-  } else {
-    $MINEDATA->{tryhint}=""
+  if ($MINEDATA->{init}) {
+    $MINEDATA->{tryhint}=$MINEDATA->{init}
+  }
+  else{
+    if ($MINEDATA->{hints}) {
+      $MINEDATA->{hints}=perm($MINEDATA->{hints},int(rand(fac(length($MINEDATA->{hints})))));
+      $MINEDATA->{hintpos}=0;
+      $MINEDATA->{tryhint}=substr($MINEDATA->{hints},0,1);
+      if ($MINER->{client}) { wsmessage($MINER->{client},"miner Trying suggestion $MINEDATA->{tryhint}") }
+      print " * Trying suggestion $MINEDATA->{tryhint}     \n";
+    } else {
+      $MINEDATA->{tryhint}=""
+    }
   }
   $MINEDATA->{tryinit}="";
   for (my $i=0;$i<$MINEDATA->{length};$i++) {
-    if ($MINEDATA->{tryhint} ne chr(65+$i)) {
-      $MINEDATA->{tryinit}.=chr(65+$i)
-    }
+    my $c=chr(65+$i);
+    if ($MINEDATA->{tryhint} !~ /$c/) { $MINEDATA->{tryinit}.=$c }
   }
   $MINEDATA->{trymax}=fac(length($MINEDATA->{tryinit}));
   $MINEDATA->{try}=int rand($MINEDATA->{trymax});
@@ -302,9 +330,15 @@ sub mineloop {
   my $suggest=$MINEDATA->{tryhint}.perm($MINEDATA->{tryinit},$MINEDATA->{try});
   if (minehash($MINEDATA->{coincount},$suggest) eq $MINEDATA->{challenge}) {
     # found the solution!
-    my $solhash=solhash($MINERWALLET,$suggest);
-    print " **!! SOLUTION !!** $suggest\n";
-    $MINER->solution($MINERWALLET,$solhash);
+    if($MINEDATA->{init}){
+      my $solhash=solhash($MINERWALLET,$suggest);
+      print " **!! SOLUTION !!** $suggest\n";
+      $MINER->solution($MINERWALLET,$suggest);
+    }else{
+      my $solhash=solhash($MINERWALLET,$suggest);
+      print " **!! SOLUTION !!** $suggest\n";
+      $MINER->solution($MINERWALLET,$solhash);
+    }
     $MINING=0; return
   }
   $MINEDATA->{try}++;
@@ -312,20 +346,27 @@ sub mineloop {
     $MINEDATA->{try}=0
   }
   if ($MINEDATA->{try} == $MINEDATA->{trystart}) {
-    $MINEDATA->{hintpos}++;
-    if ($MINEDATA->{hintpos} < length($MINEDATA->{hints})) {
-      $MINEDATA->{tryhint}=substr($MINEDATA->{hints},$MINEDATA->{hintpos},1);
-      if ($MINER->{client}) { wsmessage($MINER->{client},"miner Trying suggestion: $MINEDATA->{tryhint}") }
-      print " * Trying suggestion: $MINEDATA->{tryhint}   \n";
-      $MINEDATA->{tryinit}="";
-      for (my $i=0;$i<$MINEDATA->{length};$i++) {
-        if ($MINEDATA->{tryhint} ne chr(65+$i)) {
-          $MINEDATA->{tryinit}.=chr(65+$i);
+    if($MINEDATA->{init}){
+      print "Nop, not this block $MINEDATA->{init}.... at $MINEDATA->{fhash} Fhs...                        \n";
+      if ($MINER->{client}) { wsmessage($MINER->{client},"miner Nop, not this block $MINEDATA->{init} :-|") }
+      $MINER->outnode({command=>'challenge',nope=>$MINEDATA->{init}});
+      $MINING=0;
+    }else{
+      $MINEDATA->{hintpos}++;
+      if ($MINEDATA->{hintpos} < length($MINEDATA->{hints})) {
+        $MINEDATA->{tryhint}=substr($MINEDATA->{hints},$MINEDATA->{hintpos},1);
+        if ($MINER->{client}) { wsmessage($MINER->{client},"miner Trying suggestion: $MINEDATA->{tryhint}") }
+        print " * Trying suggestion: $MINEDATA->{tryhint}   \n";
+        $MINEDATA->{tryinit}="";
+        for (my $i=0;$i<$MINEDATA->{length};$i++) {
+          if ($MINEDATA->{tryhint} ne chr(65+$i)) {
+            $MINEDATA->{tryinit}.=chr(65+$i);
+          }
         }
+      } else {
+        print "Error.. mined all possibilities\n";
+        if ($MINER->{client}) { wsmessage($MINER->{client},"miner Error.. mined all possibilities :-(") }
       }
-    } else {
-      print "Error.. mined all possibilities\n";
-      if ($MINER->{client}) { wsmessage($MINER->{client},"miner Error.. mined all possibilities :-(") }
     }
   }
 }
@@ -408,10 +449,16 @@ sub connecttonode {
   if ($client->{fcc}{reconnect} && (time < $client->{fcc}{reconnect})) { return }
   $client->{fcc}{reconnect}=time+10;
   my ($ip,$port);
+  my ($nip,$nport);
   if ($FORCENODE) {
     ($ip,$port) = split(/\:/,$FORCENODE)
   } else {
     ($ip,$port) = split(/\:/,$NODES[$NODENR]);
+  }
+  if ($MINERNODE) {
+    ($nip,$nport) = split(/\:/,$MINERNODE)
+  }else{
+    ($nip,$nport) = ($ip,$port)
   }
   status($client,"Connecting to node $ip:$port .. ");
   $NODENR++; if ($NODENR>$#NODES) { $NODENR=0 }
@@ -421,7 +468,7 @@ sub connecttonode {
     status($client,"<span style=\"color: red; font-weight: bold\">Connection error to $ip:$port: $client->{fcc}{leaf}{error}</span>");
   } else {    
     $client->{fcc}{leafid}=$client->{fcc}{leaf}{leafid};
-    $client->{fcc}{leafip}=$ip; $client->{fcc}{leafport}=$port;
+    $client->{fcc}{leafip}=$nip; $client->{fcc}{leafport}=$nport;
     $client->{fcc}{connectnode}=0;
   }
 }
@@ -465,7 +512,6 @@ sub handle {
       init($client);
       wsmessage($client,"actwal ".$WLIST->[0]{wallet});
       if($MINING && $MINERWALLET){
-        #print "MINEDATA:".gparse::str($MINEDATA)."\n";
         wsmessage($client,"mining ".encode_json({wallet=>$MINERWALLET,size=>[$MINFHASH,$MAXFHASH],data=>$MINEDATA}));
       }
     } elsif ($data =~ /^pass (.+)$/) {
@@ -649,7 +695,7 @@ sub handle {
     }
     $client->{killafteroutput}=1
   }
-  usleep(10000)
+  usleep($MINING ? 100:10000);
 }
 
 sub burstfile {
@@ -760,6 +806,9 @@ sub slavecall {
 sub slaveminercall {
   my $log="coinbase.$PORT.log";
   my ($leaf,$command,$data) = @_;
+  if ($data && $data->{error}) {
+    print " <Node] $command : $data->{error}\n";
+  }
   if (!$data || (ref($data) ne 'HASH')) { error("No data HASHREF given from leaf! command = $command") }
   if (!$data->{message}) { $data->{message}=$command }
   if (!$data->{error}) { $data->{error}="OK" }
@@ -781,11 +830,16 @@ sub slaveminercall {
     }
   }
   if ($command eq 'mine') {
-    print "miner New challenge: Coincount = $data->{coincount} Difficulty = $data->{diff} Reward = $data->{reward} Len = $data->{length} Hints = $data->{hints}\n";
+    if(!defined $data->{init}){ $data->{init}="" }
     if (!$MINING || ($data->{coincount} > $MINEDATA->{coincount})) {
+      print "miner New challenge: Coincount = $data->{coincount} Difficulty = $data->{diff} Reward = $data->{reward} Len = $data->{length} Hints = $data->{hints} eHints = $data->{ehints} Init = $data->{init}\n";
       my $mstr=time." coinbase $data->{coincount} $data->{diff}\n";
       if (-e $log) { gfio::append($log,$mstr) } else { gfio::create($log,$mstr) }
-      if ($MINER->{client}) { wsmessage($MINER->{client},"miner New challenge: Coincount = $data->{coincount} Difficulty = $data->{diff} Reward = $data->{reward} Len = $data->{length} Hints = $data->{hints}") }
+      if (($data->{coincount} > $MINEDATA->{coincount}) && $MINER->{client}) {
+        wsmessage($MINER->{client},"miner New challenge: Coincount = $data->{coincount} Difficulty = $data->{diff} Reward = $data->{reward} Len = $data->{length} Hints = $data->{hints} eHints = $data->{ehints} Init = $data->{init}")
+      }else{
+        wsmessage($MINER->{client},"miner Next challenge: Coincount = $data->{coincount} Difficulty = $data->{diff} Reward = $data->{reward} Len = $data->{length} Hints = $data->{hints} eHints = $data->{ehints} Init = $data->{init}")
+      }
       challenge($data);
     }
   } elsif ($command eq 'solution') {

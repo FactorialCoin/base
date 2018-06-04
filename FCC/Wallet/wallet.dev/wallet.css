@@ -1,6 +1,11 @@
 
   body {
-    background: #f0f8ff;
+    background: #0073a3;
+    background-size: 100% auto;
+    background-position: 0px 0%;
+    background-attachment: fixed;
+    background-repeat: no-repeat;
+    background-blend-mode: normal;
     padding: 0; margin: 0;
   }
   * {
@@ -140,15 +145,14 @@
   	left: 0; top: 0; right: 0px; height: 215px;
    	margin: auto;
   	overflow: none;
-    background: #0073a3;
-  	color: black;
+  	color: rgb(132,180,244);
   	padding: 7px;
   	border: 3px ridge #205090;
   	font-size: 13px;
   	font-family: Verdana;
     background-image:url(image/fccwallet.png);
-    background-size: auto 164px;
-    background-position: -19px 64px;
+    background-size: auto 196px;
+    background-position: -36px 48px;
     background-repeat: no-repeat;
     background-attachment: scroll;
   }
@@ -174,7 +178,7 @@
     top: 96px; left: 6px; right: 6px; bottom: 32px;
    	margin: auto;
   	overflow: hidden;
-  	background: linear-gradient(to right, rgba(66,115,166,0.4), rgba(35,35,110,0.5));
+  	background: linear-gradient(to right, rgba(66,115,166,0.1), rgba(35,35,110,0.9));
   	color: black;
   	padding: 7px;
   	border: 3px ridge #205090;
@@ -194,8 +198,8 @@
     font-size: 32px;
     font-weight: bolder;
     text-align:right;
-    color: #102080;
-    text-shadow: 0px 0px 6px rgba(155,255,255,0.8);
+    color: #6BF;
+    text-shadow: 0px 0px 6px rgba(0,55,55,0.8);
   }
 
   #walnamediv {
@@ -222,10 +226,10 @@
     font-size: 24px;
     line-height: 24px;
     font-weight: bolder;
-    color: #101070;
     word-break: break-all;
     overflow-y: hidden;
-    text-shadow: 0px 0px 3px rgba(200,250,200,0.5);
+    color: #6BF;
+    text-shadow: 0px 0px 6px rgba(0,55,55,0.8);
     cursor:pointer;
   }
 
@@ -321,8 +325,8 @@
     font-weight: bolder;
     padding-left:3px;
     padding-top:1px;
-    color: black;
-    background:white;
+    color: rgb(132,180,244);
+    background:rgba(32,80,144,0.7);
     border: 1px inset #205090;
   }
 
@@ -335,7 +339,7 @@
     font-family: Courier New;
     font-size: 9px;
     font-weight: bolder;
-    color: #000020;  
+    color: rgb(132,180,244);
   }
 
   #minediff {
@@ -379,7 +383,7 @@
     text-align:right;
     padding-right:3px;
     white-space:nowrap;
-    border:1px solid white;
+    border:1px solid rgb(12,70,124,0);
   }
   #cointable tr:first-child {
     padding-top:1px;
@@ -482,7 +486,7 @@
     top: 0px;
     height: 22px;
     background: #b3b3b9;
-    color: black;
+    color: rgb(12,70,124);
     border-left: 1px solid #eeeeee;
     border-top: 1px solid #eeeeee;
     border-bottom: 2px solid #222222;
@@ -504,7 +508,7 @@
     height: 22px;
     margin: auto;
     background: #b3b3b9;
-    color: black;
+    color: rgb(12,70,124);
     border-left: 1px solid #eeeeee;
     border-top: 1px solid #eeeeee;
     border-bottom: 2px solid #222222;
@@ -527,7 +531,7 @@
     height: 22px;
     margin: auto;
     background: #b3b3b9;
-    color: black;
+    color: rgb(12,70,124);
     border-left: 1px solid #eeeeee;
     border-top: 1px solid #eeeeee;
     border-bottom: 2px solid #222222;
@@ -559,8 +563,8 @@
   	overflow: auto;
   	padding: 7px;
   	border: 3px ridge #205090;
-  	background: white;
-  	color: black;
+  	background: rgba(32,80,144,0.6);
+  	color: rgb(132,180,244);
   	font-size: 18px;
   	font-family: Verdana;
   }
@@ -604,8 +608,8 @@
     overflow-y: auto;
     padding: 7px;
     border: 3px ridge #205090;
-    background: white;
-    color: black;
+    background: rgba(32,80,144,0.8);
+    color: rgb(132,180,244);
     font-size: 18px;
     font-family: Verdana;
   }
@@ -615,7 +619,6 @@
   	position: absolute;
   	top: 3px; left: 6px; right: 6px;
     min-height: 420px; bottom: 6px;
-  	background: #f0f0f0;
   }
   .tfnt {
   	position: absolute;
@@ -624,20 +627,20 @@
   	font-family: verdana;
   	font-size: 13px;
     font-weight: bolder;
-  	color: black;
+  	color: rgb(132,180,244);
   }
   .tafnt {
   	position: absolute;
   	font-family: verdana;
   	font-size: 18px;
-  	color: black;
+  	color: rgb(132,180,244);
   }
   #from {
   	position: absolute;
   	top: 18px; left: 5px;
   	font-family: "Lucida Console";
   	font-size: 11px;
-  	color: #000080;  	
+  	color: rgb(132,180,244);  	
   }
   #amount {
   	position: absolute;
@@ -646,7 +649,7 @@
   	font-family: "Lucida Console";
   	padding: 3px;
   	font-size: 18px;
-  	color: #000040;
+  	color: rgb(132,180,244);
   	border: 1px blue solid;
   }
   #fee {
@@ -656,7 +659,7 @@
   	font-family: "Lucida Console";
   	padding: 3px;
   	font-size: 18px;
-  	color: #000040;
+  	color: rgb(132,180,244);
   	border: 1px blue solid;
   }
   #to {
@@ -666,7 +669,7 @@
   	font-family: "Lucida Console";
   	padding: 3px;
   	font-size: 16px;
-  	color: black;
+  	color: rgb(132,180,244);
   	border: 1px blue solid;
   }
   #adrbook {
@@ -717,18 +720,18 @@
     left: 3px; top: 200px; right: 3px; min-height:48px; bottom: 70px;
     margin: auto;
     overflow: auto;
-    background: #e0e0e0;
+    background: rgba(32,80,144,0.4);
     padding: 3px;
   }
   #change {
   	position: absolute;
-  	bottom: 40px; left: 140px; width: 330px;
+  	bottom: 40px; left: 130px; width: 330px;
   	height: 18px;
   	background: #003060;
   	font-family: Tahoma;
   	font-size: 12px;
   	color: white;
-  	padding-left: 3px;  	
+  	padding-left: 3px;
   }
   #transbut {
     position: absolute;
@@ -936,7 +939,7 @@
   	overflow: hidden;
   	padding: 0;
   	border: 3px ridge #205090;
-  	background: white;
+  	background: rgba(255,255,255,0.3);
   }
 
   #chatcont {
@@ -959,7 +962,7 @@
     overflow: auto;
     padding: 7px;
     border: 3px ridge #205090;
-    background: white;
+    background: rgba(255,255,255,0.7);
     color: black;
     font-size: 13px;
     font-family: "Lucida Console";

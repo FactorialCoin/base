@@ -221,6 +221,7 @@ var discon=0;
     }
   }
   function start() {
+    document.getElementById('wallets').innerHTML='';
   	connect();
     document.getElementById('body').style.backgroundImage="url(image/fccbg.png)";
     document.getElementById('graybg').style.visibility='hidden';
@@ -411,6 +412,25 @@ var discon=0;
       chatzoom()
     }
   }
+  function openvids() {
+    var vids=document.getElementById('vids');
+    if(vids.style.display == 'block'){
+      vids.style.display='none';
+      vids.innerHTML="";
+    }else{
+      var c="https://www.youtube.com/embed/JU1WAaTSjgI";
+      vids.style.display='block';
+      var obj=document.createElement("IFRAME");
+      obj.id='vidsframe';
+      obj.src=c;
+      obj.scrolling="no";
+      obj.frameborder=0;
+      obj.allow="autoplay; encrypted-media";
+      obj.allowfullscreen=true;
+      vids.appendChild(obj);
+    }
+  }
+
   function chatzoom() {
     var cz=document.getElementById('chatzoom'), zm=cz.options[cz.selectedIndex].value, zp=(100/(zm/100));
     var cf=document.getElementById('chatframe');
