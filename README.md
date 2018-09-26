@@ -6,21 +6,27 @@ It allows to participate in one of the fastest and most secure Crypto Currencies
 You can earn FCC by mining it or running a node in which case you will get part of the fees payed over transactions.
 
 
-Download Perl & FCC Install:
+Download Perl & FCC/PTTP Install:
 
 
 Windows Install Pack (perl included):
 
   https://factorialcoin.nl/download/FCC_Install_Windows_0122.zip
+  
+  https://pttp.factorialcoin.nl//PTTP_0102_Windows.zip
 
 Linux Install Pack (perl included):
 
   https://factorialcoin.nl/download/FCC_Install_Linux_0122.tar.gz
-
+  
+  https://pttp.factorialcoin.nl//PTTP_0102_Linux.tar.gz
+  
 Macintosh Install Pack (perl included):
 
   https://factorialcoin.nl/download/FCC_Install_Macintosh_0122.rar
-
+  
+  https://pttp.factorialcoin.nl//PTTP_0102_Macintosh.rar
+  
 
 GitHub Install:
 
