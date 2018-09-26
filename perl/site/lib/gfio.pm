@@ -586,7 +586,7 @@ sub getfile {
     error("GFIO.GetFile: File '$num' is invalid (must be between 1 and ".$self->numfiles.", reading '".$self->{dir}."')")
   }
   my $fi=$self->{list}[$num-1];
-  my @stat=stat($fi->[4]);
+  my @stat=stat($fi->[4]) || (0)x11;
   my $info={
     barename => $fi->[0],
     ext => $fi->[1],

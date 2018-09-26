@@ -5,7 +5,7 @@ package gserv;
 ######################################################################
 #                                                                    #
 #          Round Robin Server                                        #
-#           - websockets, telnet, http, raw                          #
+#           - websockets, telnet, http, raw, IceCast                 #
 #           - SSL support                                            #
 #           - fully bidirectional non-blocking, all systems          #
 #                                                                    #
@@ -34,6 +34,7 @@ package gserv;
 #       113 No route to host                                         #
 #       130 Killed by interrupt                                      #
 #       400 Bad request                                              #
+#       405 Method not allowed                                       #
 #       408 Request timeout                                          #
 #       426 Upgrade required                                         #
 #      1000 Process killed by administrator                          #
@@ -60,7 +61,7 @@ use HTTP::Date;
 use Exporter;
 use vars qw($VERSION @ISA @EXPORT @EXPORT_OK);
 
-$VERSION     = '4.1.1'; # still 1.1? Finally stable?
+$VERSION     = '4.3.1';
 @ISA         = qw(Exporter);
 @EXPORT      = qw(wsmessage);
 @EXPORT_OK   = qw(prtm localip init start wsmessage out burst takeloop broadcast wsbroadcast broadcastfunc httpresponse);
@@ -100,7 +101,6 @@ sub init {
     websocketmode => 0,                      # Only allow websocket connections
     linemode => 0,                           # Split lines even in raw mode
     killhttp => 0,                           # kill http-clients automatically when done with output
-    httpresponse => undef,                   # \&func($client): array (http-response lines without \r\n)
     maxdatasize => 52428800,                 # 50MB, Maximum data-size which may be received in one package (websockets) (must be more than 65534)
     pingtime => 30,                          # seconds on ilde to check we're still alive
     pingtimeout => 5,                        # seconds for clients to respond on ping with pong before ping-timeout
@@ -326,11 +326,13 @@ sub takeloop {
             pingsent => 0,
             pings => {},
             telnet => 0,
-            telnetfirst => 0,
             httpmode => 0,
             httpreadheader => 0,
             httpheader => {},
             websockets => 0,
+            icecast => 0,
+            iceversion => "",
+            mountpoint => "",
             killme => 0,
             killafteroutput => 0,
             init => 1,
@@ -345,7 +347,10 @@ sub takeloop {
             selector => IO::Select->new($client),
             bytessent => 0,
             bytesreceived => 0,
-            bustmode => 0
+            bustmode => 0,
+            wsbuffer => "",
+            wsdata => "",
+            wstype => "",
           };
           push @{$self->{clients}},$cdata;
           $self->{numclients}++;
@@ -400,7 +405,7 @@ sub removeclient {
 }
 
 sub deleteclient {
-  my ($self,$client) = @_;
+  my ($self,$client,$msg) = @_;
   my $ip='closed'; my $port='closed';
   if ($client) {
     $ip=$client->{ip}; $port=$client->{port};
@@ -413,7 +418,7 @@ sub deleteclient {
       if ($client->{ssl}) {
         $client->{socket}->close(SSL_no_shutdown => 1)
       } else {
-        close($client->{socket}); 
+        shutdown($client->{socket},2); close($client->{socket}); 
       }
     }
   }
@@ -422,7 +427,7 @@ sub deleteclient {
     print STDOUT prtm(),"QUIT $ip\:$port\n"
   }
   my $func=$self->{clienthandle};
-  &$func($client,'quit');
+  &$func($client,'quit',$msg);
   $self->removeclient();
   $self->{deleteflag}=1;
 }
@@ -433,11 +438,103 @@ sub wschardecode {
   return chr($key ^ $client->{wsmask}[$pos]);
 }
 
+sub wsinput {
+  # WebSockets hybi06 - v13 - Not the easiest protocol ever..
+  # RFC 6455
+  my ($self,$client,$data) = @_;
+  my $func=$self->{clienthandle};
+  if (defined $data) { $client->{wsbuffer}.=$data }
+  my $blen=length($client->{wsbuffer});
+  if ($blen < 2) { return }
+  #print " << INPUT [$len] $self->{host}:$self->{port}     \n";
+  my $firstchar=ord(substr($client->{wsbuffer},0,1));
+  my $secondchar=ord(substr($client->{wsbuffer},1,1));
+  my $type=$firstchar & 15;
+  my $final=$firstchar & 128;
+  my $continue=0;
+  my $blocktype;
+  if ($type == 0) { $continue=1 }
+  elsif ($type == 1) { $blocktype='text' }
+  elsif ($type == 2) { $blocktype='binary' }
+  elsif ($type == 8) { $blocktype='close' }
+  elsif ($type == 9) { $blocktype='ping' }
+  elsif ($type == 10) { $blocktype='pong' }
+  else {
+    &$func($client,'error',"Invalid WS frame type: $type"); return
+  }
+  if (!$continue) { $client->{wstype}=$blocktype }
+  my $mask=$secondchar & 128;
+  if (!$mask) {
+    # RFC 6455 - Data MUST be masked!
+    &$func($client,'error',"Non-Masked data found in input from client"); return
+  }
+  my $len=$secondchar & 127; my $offset=2;
+  if ($len==126) {
+    if ($blen < 4) { return }
+    $len=ord(substr($client->{wsbuffer},2,1));
+    $len=($len<<8)+ord(substr($client->{wsbuffer},3,1));
+    $offset=4
+  } elsif ($len==127) {
+    if ($blen < 10) { return }
+    $len=0;
+    for (my $p=0;$p<8;$p++) {
+      $len=($len<<8)+ord(substr($client->{wsbuffer},$offset,1));
+      $offset++
+    }
+  }
+  if ($blen<$offset+4+$len) { return }
+  # YES! We got a package!
+  my @mask=();
+  for (my $m=0;$m<4;$m++) {
+    push @mask,ord(substr($client->{wsbuffer},$offset,1)); $offset++
+  }
+  my $fdata=""; my $mp=0;
+  for (my $i=0;$i<$len;$i++) {
+    $fdata.=chr(ord(substr($client->{wsbuffer},$offset,1)) ^ $mask[$mp]); 
+    $offset++; $mp=($mp+1) & 3
+  }
+  $client->{wsdata}.=$fdata;
+  if ($final) {
+    $self->handlews($client);
+    $client->{wsdata}=""
+  }
+  $client->{wsbuffer}=substr($client->{wsbuffer},$offset);
+  if (length($client->{wsbuffer})) { $self->wsinput($client) }
+}
+
+sub handlews {
+  my ($self,$client) = @_;
+  my $func=$self->{clienthandle};
+  if (length($client->{wsdata}) > $self->{maxdatasize}) { &func($client,'error',"1009 Datasize too large") }
+  if ($client->{wstype} eq 'ping') {
+    if ($client->{verbosepingpong}) {
+      print STDOUT prtm(),"*< PING $client->{ip}\:$client->{port}\n";
+    }
+    wsmessage($client,$client->{wsdata},'pong');
+    $client->{lastping}=gettimeofday();
+    $client->{pingsent}=0
+  } elsif ($client->{wstype} eq 'pong') {
+    if ($client->{verbosepingpong}) {
+      print STDOUT prtm(),"*< PONG $client->{ip}\:$client->{port}\n";
+    }
+    if ($client->{pings}{$client->{wsdata}}) {
+      delete $client->{pings}{$client->{wsdata}};
+    }
+    $client->{lastping}=gettimeofday();
+    $client->{pingsent}=0
+  } elsif ($client->{wstype} eq 'close') {
+    $self->deleteclient($client,$client->{wsdata})
+  } else {
+    &$func($client,"input",$client->{wsdata})
+  }
+}
+
 sub wsmessage {
   my ($client,$msg,$command) = @_;
   if ($client->{isserver}) { error "Version 3 Design change! wsmessage($client,$msg,$command)" }
   if (!defined($msg) && !defined($command)) { return }  
   if (!$command) { $command='text' }
+  # print " >> $client->{ip}:$client->{port} $command $msg     \n";
   if (!$client || (ref($client) ne 'HASH') || $client->{killme} || $client->{closed} || $client->{dontsend}) { return }
   my $out=chr(129);
   if ($command eq 'binary') {
@@ -479,7 +576,7 @@ sub wsmessage {
     my $p=7;
     while ($len>0) {
       my $val=$len & 255;
-      substr($tout,$p,1)=chr($val);
+      substr($tout,$p,1,chr($val));
       $len>>=8; $p--;
       if ($p<0) { last } # 128 bit computers ;)
     }
@@ -647,7 +744,7 @@ sub handleclient {
         # 10035 = WSAEWOULDBLOCK (Windows sucking non-blocking sockets)
         if ($!) {
           if ($self->{verbose}) {
-            my $err=0+$!; my $emsg=
+            my $err=0+$!;
             print STDOUT prtm(),"ERROR $client->{ip}\:$client->{port} [$err] $!\n";
             $client->{dontsend}=1;
             &$func($client,'error',$err)
@@ -672,7 +769,6 @@ sub handleclient {
           $self->deleteclient($client); return
         }
         $client->{telnet}=1;
-        $client->{telnetfirst}=1;
         my $func=$self->{clienthandle};
         &$func($client,'telnet');
         # negate Telnet ident string
@@ -698,6 +794,11 @@ sub handleclient {
         $client->{httpheader}{uri}=$1;
         $client->{httpheader}{version}=$2;
         $client->{httpheader}{method}='post';
+      } elsif ($inbuf =~ /^SOURCE (\/[^\s]+) ICE\/([0-9.]+)/i) {
+        $client->{icecast}=1;
+        $client->{httpreadheader}=1;
+        $client->{mountpoint}=$1;
+        $client->{iceversion}=$2
       } elsif ($self->{websocketmode}) {
         print STDOUT prtm(),"ERROR $client->{ip}\:$client->{port} [RAW = NO WEBSOCKET CLIENT]\n";
         $self->outsock($client,"HTTP/1.1 400 BAD REQUEST\r\n\r\n");
@@ -710,158 +811,7 @@ sub handleclient {
     }
     $client->{last}=$ctm;
     if ($client->{websockets}) {
-      # WebSockets v13 - Not the easiest protocol ever..
-      # RFC 6455
-      my $len=length($inbuf);
-      my $pos=0;
-      while ($pos<$len) {
-        my $byte=ord(substr($inbuf,$pos,1)); $pos++;
-        if ($client->{wsreadheader}) {
-          if (!$client->{wsreadmode}) {
-            # get fin & opcode
-            $client->{wsfinalframe}=$byte>>7;
-            if (!$client->{wsopcode}) {
-              my $opc=$byte & 15;
-              if ($opc) { $client->{wsopcode}=$opc }
-            }
-            $client->{wsreadmode}=1
-          } elsif ($client->{wsreadmode}==1) {
-            # get length first byte
-            $client->{wsmaskpresent}=$byte>>7;
-            # RFC 6455: All frames sent from client to server have this bit set to 1.
-            if (!$client->{wsmaskpresent}) {
-              wsmessage($client,"1002 Protocol Error",'close');
-              $client->{dontsend}=1;
-              &$func($client,'error',1002);
-              $client->{killafteroutput}=1
-            }
-            $client->{wspayload}=$byte & 127;
-            $client->{wsmask}=[];
-            if ($client->{wspayload}==126) {
-              $client->{wsreadmode}=2; $client->{wsreadlen}=0; $client->{wspayload}=0;
-            } elsif ($client->{wspayload}==127) {
-              $client->{wsreadmode}=3; $client->{wsreadlen}=0; $client->{wspayload}=0;
-            } else {
-              $client->{wsreadmode}=4
-            }
-          } elsif ($client->{wsreadmode}==2) {
-            $client->{wspayload}=($client->{wspayload}<<8)+$byte;
-            $client->{wsreadlen}++;
-            if ($client->{wsreadlen}==2) {
-              if ($client->{wspayload}<126) {
-                # RFC 6455: Smallest datasize MUST be used!
-                wsmessage($client,"1002 Protocol Error",'close');
-                $client->{dontsend}=1;
-                &$func($client,'error',1002);
-                $client->{killafteroutput}=1
-              }
-              $client->{wsreadmode}=4
-            }
-          } elsif ($client->{wsreadmode}==3) {
-            my $var = 5000000000; $var++; 
-            if ($var != 5000000001) {
-              # not 64 bit!!!
-              wsmessage($client,"1009 Insufficient Storage",'close');
-              &$func($client,'error',1009);
-              $client->{killafteroutput}=1
-            }
-            $client->{wspayload}=($client->{wspayload}<<8)+$byte;
-            $client->{wsreadlen}++;
-            if ($client->{wspayload}>$self->{maxdatasize}) {
-              # TOO LARGE DATA !!! COMPUTERS ARE ALWAYS LIMITED !!! READ TANENBAUM !!!
-              wsmessage($client,"1009 Insufficient Storage",'close');
-              &$func($client,'error',1009);
-              $client->{killafteroutput}=1
-            }
-            if ($client->{wsreadlen}==8) {
-              if ($client->{wspayload}<65536) {
-                # RFC 6455: Smallest datasize MUST be used!
-                wsmessage($client,"1002 Protocol Error",'close');
-                $client->{dontsend}=1;
-                &$func($client,'error',1002);
-                $client->{killafteroutput}=1
-              }
-              $client->{wsreadmode}=4
-            }
-          } elsif ($client->{wsreadmode}==4) {
-            # RFC 6455 Masking bytes MUST be present
-            push @{$client->{wsmask}},$byte;
-            if ($#{$client->{wsmask}}==3) {
-              # Done reading header !!
-              $client->{wsreadmode}=0; # reset for next run.
-              if (!$client->{wspayload}) {
-                # package with no data! so don't reset: we're ready to read a new header!
-                if ($client->{wsopcode}==8) {
-                  $self->deleteclient($client); return
-                } elsif (($client->{wsopcode}==9) && $client->{wsfinalframe}) {
-                  # Ping with no body..
-                  if ($client->{verbosepingpong}) {
-                    print STDOUT prtm(),"*< PING $client->{ip}\:$client->{port}\n";
-                  }
-                  wsmessage($client,"",'pong')
-                } elsif (($client->{wsopcode}==10) && $client->{wsfinalframe}) {
-                  if ($client->{verbosepingpong}) {
-                    print STDOUT prtm(),"*< PONG $client->{ip}\:$client->{port}\n";
-                  }
-                  $client->{lastping}=$ctm;
-                  $client->{pingsent}=0
-                }
-                # else nothing to do
-              } else {
-                $client->{wsreadheader}=0; # we're ready to read data!
-                $client->{wsbuffer}="";
-                $client->{wsbufferread}=0;
-              }
-            }
-          }
-        }
-        else {
-          # read websocket payload
-          $client->{wsbuffer}.=gserv::wschardecode($client,$byte);
-          $client->{wsbufferread}++;
-          if ($client->{wsbufferread}==$client->{wspayload}) {
-            $client->{wsreadheader}=1;
-            $client->{wsdata}.=$client->{wsbuffer};
-            $client->{wsbuffer}="";
-            $client->{wsbufferread}=0;
-            if ($client->{wsfinalframe}) {
-              if ($client->{wsopcode}==10) {
-                if ($client->{verbosepingpong}) {
-                  print STDOUT prtm(),"*< PONG $client->{ip}\:$client->{port} $client->{wsdata}\n";
-                  $client->{lastping}=$ctm;
-                  $client->{pingsent}=0
-                }
-                if (!$client->{pings}{$client->{wsdata}}) {
-                  #print STDOUT "*>! INVALID PONG $client->{ip}\:$client->{port} ($client->{wsdata})\n";
-                  #&$func('error',$client,1008);
-                  #wsmessage($client,"1008 Invalid pong",'close');
-                  #$self->deleteclient($client); return
-                } else {
-                  delete $client->{pings}{$client->{wsdata}};
-                }
-                $client->{lastping}=$ctm
-              } elsif ($client->{wsopcode}==9) {
-                if ($client->{verbosepingpong}) {
-                  print STDOUT prtm(),"*< PING $client->{ip}\:$client->{port} $client->{wsdata}\n";
-                  $client->{lastping}=$ctm;
-                  $client->{pingsent}=0
-                }
-                wsmessage($client,$client->{wsdata},'pong')
-              } elsif ($client->{wsopcode}==8) {
-                $self->deleteclient($client); return
-              } else {
-                # We've collected all data from 1 or more frames.. finally we can output!
-                if (!$client->{telnetfirst}) {
-                  &$func($client,"input",$client->{wsdata})
-                } else {
-                  $client->{telnetfirst}=0
-                }
-              }
-              $client->{wsdata}=""; $client->{wsopcode}=0
-            }
-          }
-        }        
-      }
+      $self->wsinput($client,$inbuf);
     } else {
       # print "* PROCESS ".length($inbuf)." *\n";
       if (!$client->{httpmode} && !$client->{telnet} && !$self->{linemode}) {
@@ -892,6 +842,9 @@ sub handleclient {
               }
               if ($client->{postdatalength} == 0) {
                 $client->{readpostdata}=0;
+                  #foreach my $k (sort keys %{$client->{httpheader}}) {
+                  #  print "$k => $client->{httpheader}{$k}\n"
+                  #}
                 $client->{post}=gpost::init($client->{httpheader}{'content-type'},$client->{postdata});
                 &$func($client,"ready",'post'); 
               }
@@ -1008,7 +961,11 @@ sub httphandshake {
   my $func=$self->{clienthandle};
   my $date=time2str();
   my $caller=$self->{caller};
-  if ((defined $client->{httpheader}{upgrade}) && ($client->{httpheader}{upgrade} =~ /websocket/i)) {
+  if (!$client->{icecast} && ($client->{httpheader}{'ice-name'} || $client->{httpheader}{'ice-description'} || $client->{httpheader}{'ice-url'})) {
+    $client->{icecast}=2;
+    $client->{iceversion}=$client->{httpheader}{version};
+    $client->{mountpoint}=$client->{httpheader}{uri}
+  } elsif ((defined $client->{httpheader}{upgrade}) && ($client->{httpheader}{upgrade} =~ /websocket/i)) {
 #  print "#[-1]#\r\n";
     $client->{wsreadheader}=1;
     $client->{wsheadermode}=0;
@@ -1020,7 +977,7 @@ sub httphandshake {
 
       # wybi00 is vulnerable!!!
       print STDOUT "[WEBSOCKET HyBi00]\n";
-      out($client,"HTTP/1.1 400 BAD REQUEST\r\nSec-WebSocket-Version: $client->{wsversion}\r\n\r\n");
+      out($client,"HTTP/1.1 400 Bad Request\r\nSec-WebSocket-Version: $client->{wsversion}\r\n\r\n");
       $client->{killafteroutput}=1;
       return;
     }
@@ -1038,9 +995,29 @@ sub httphandshake {
     push @out,"Sec-WebSocket-Accept: ".$handshake;
     $client->{signalws}=1
   } elsif ($self->{websocketmode}) {
-    $self->outsock($client,"HTTP/1.1 426 Upgrade Required\r\nSec-WebSocket-Version: 13\r\nContent-type: text/html\r\n\r\nYou need to connect with the WebSocket protocol on this server.");
+    out($client,"HTTP/1.1 426 Upgrade Required\r\nSec-WebSocket-Version: 13\r\nContent-type: text/html\r\n\r\nYou need to connect with the WebSocket protocol on this server.");
     &$func($client,'error',"426 Upgrade Required");
     $self->deleteclient($client); return
+  }
+  if ($client->{icecast}==1) {
+    push @out,"HTTP/1.0 200 OK";
+    push @out,"Server: Icecast 2.5.0";
+    push @out,"Connection: Close";
+    push @out,"Allow: GET, SOURCE";
+    push @out,"Date: $date";
+    push @out,"Cache-Control: no-cache";
+    push @out,"Pragma: no-cache";
+    push @out,"Access-Control-Allow-Origin: *";
+  } elsif ($client->{icecast}==2) {
+    push @out,"HTTP/1.1 100 Continue";
+    push @out,"Server: Icecast 2.5.0";
+    push @out,"Connection: Close";
+    push @out,"Accept-Encoding: identity";
+    push @out,"Allow: GET, SOURCE";
+    push @out,"Date: $date";
+    push @out,"Cache-Control: no-cache";
+    push @out,"Pragma: no-cache";
+    push @out,"Access-Control-Allow-Origin: *";
   }
   if ($#out >= 0) {
     my $data=join("\r\n",@out)."\r\n\r\n";
@@ -1153,7 +1130,7 @@ sub quit {
   my ($self)=@_;
   if (!$self->{server}{running}) { exit }
   $|=1; my $nc=$self->{numclients};
-  print STDOUT prtm(),"Kill signal received! Killing $nc clients .. \n";
+  print STDOUT prtm(),"Kill signal received! Killing $nc clients .. ";
   $self->wsbroadcast('quit','close');
   for (my $c=0;$c<$nc;$c++) {
     $self->{clients}[$c]{killafteroutput}=1;
@@ -1161,9 +1138,9 @@ sub quit {
   for (my $c=0;$c<$nc;$c++) {
     $self->takeloop()
   }
-  print STDOUT "done.\n",prtm(),"Killing myself .. ";
+  print STDOUT "Done.\n"; print STDOUT prtm()."Killing myself .. ";
   my $sock=$self->{server}{socket};
-  if ($sock) { close($sock); }
+  if ($sock) { shutdown($sock,2); close($sock); }
   $self->{server}{running}=0;
   $self->{clients} = [];
   $self->{current} = 0;

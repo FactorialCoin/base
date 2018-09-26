@@ -39,7 +39,7 @@ sub init {
   $self->{len}=0;
   if (defined $type) {
     if ($type eq 'get') { $self->{type}='url' } 
-    elsif ($type =~ /application\/x-www-form-urlencoded/i) { $self->{type}='url '}
+    elsif ($type =~ /application\/x-www-form-urlencoded/i) { $self->{type}='url'}
     elsif ($type =~ /multipart\/form-data.*?boundary=\"?([^\"]+)\"?$/i) {
       $self->{boundary}=$1; $self->{type}='mime'
     }
@@ -70,8 +70,11 @@ sub init {
   }
   $self->{len}=length($self->{data});
   if ($self->{error} || (!$self->{len})) { return $self }
-  my $func='decode_'.$self->{type};
-  &$func($self);
+  if ($self->{type} eq 'url') {
+    $self->decode_url()
+  } else {
+    $self->decode_mime()
+  }
   return $self
 }
 
