@@ -1,4 +1,4 @@
-# FactorialCoin Perl-Base
+# Domero Perl-Base
 
 FCC/PTTP is completely made in Perl. It will run on almost any O/S.
 It allows to participate in one of the fastest and most secure Crypto Currencies on planet earth.
