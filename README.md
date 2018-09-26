@@ -1,4 +1,4 @@
-# base
+# FactorialCoin Base
 FCC Source Code
 
 FCC is completely made in Perl. It will run on almost any O/S.
