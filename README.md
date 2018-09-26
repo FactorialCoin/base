@@ -27,7 +27,7 @@ Macintosh Install Pack (perl included):
   
   https://pttp.factorialcoin.nl//PTTP_0102_Macintosh.rar
   
-
+<hr>
 GitHub Install:
 
 put perl/site/lib into your Perl's /site/lib directory.
