@@ -16,7 +16,7 @@ use warnings;
 use Exporter;
 use vars qw($VERSION @ISA @EXPORT @EXPORT_OK);
 
-$VERSION     = '2.21';
+$VERSION     = '2.32';
 @ISA         = qw(Exporter);
 @EXPORT      = ();
 @EXPORT_OK   = qw();
@@ -27,17 +27,20 @@ use gerr;
 use gfio 1.10;
 use Digest::SHA qw(sha256_hex sha512_hex);
 use Crypt::Ed25519;
-use gserv 4.1.1;
-use gclient 7.4.1;
+use gserv 4.2.1;
+use gclient 7.6.1;
 use Time::HiRes qw(gettimeofday usleep);
-use FCC::global 1.21;
-use FCC::wallet 2.11;
-use FCC::fcc 1.21;
+use FCC::global 1.31;
+use FCC::wallet 2.12;
+use FCC::fcc 1.22;
 
-my $DEBUG=0;
+my $DEBUG = 0;
+my $DEBUGMODE = 0;
+my $AVT = 0;
 
 # some to become config
 my $SERVER;              # gserv-handle of node-server
+my $SERVQUIT=0;          # prevent double quit
 my $FIREWALL = {};       # IP firewall
 my $CHECKROUTING=1;      # check if we have checked if we have portforwarding
 my $PARENTLOOP=0;        # loop all parents one by one
@@ -47,11 +50,21 @@ my $SERVERLEAF;          # active leaf in leafloop
 my $DATASENT=0;          # bytes sent in total
 my $DATARECEIVED=0;      # bytes received in total
 my $EVALMODE=0;            # soon to be a goner!
+
+# Infomode is a way to restore from hardforks in combination with the FCC-server (a must in dev-mode)
+my $INFOMODE=0;          # Run node to gain information
+my $INFOTIME=0;          # Just some extra time to let more nodes connect
+my $INFODOWNLOAD=0;      # download the best ledger?
+my $INFONODE;            # node to read ledger from
+my $INFOLL=0;            # ledgerlength wanted
+my $INFOPOS=0;           # position we are downloading ledger from
+my $INFOREAD=0;          # event busy?
+
 my $LASTCLIENTRUN=0;     # maintenance timekeeper
 my $WALLET;              # node wallet
 my $WALLETPASS;          # node wallet password, if protected
 my $FCCSERVER = [ $FCCSERVERIP, $FCCSERVERPORT ];
-my $FCCSERVERLAN = [ '192.168.1.103', '5151' ]; # debug on LAN mode (localmode)
+my $FCCSERVERLAN = [ '192.168.1.103', $FCCSERVERPORT ]; # debug on LAN mode (localmode)
 my $FCCHANDLE;           # gclient handle to the FCC-Server
 my $CYCLELOOP=0;         # ready to check for votes?
 my $FCCINIT=0;           # Initialisation state
@@ -82,6 +95,7 @@ my $REQBLOCKPOS=0;
 my $SYNCBLOCKS={};
 my $SYNCERROR=0;
 my $SYNCINIT=1;
+my $SYNCFREE=1;
 my $TRESLIST={};
 my $TRANSLIST={};
 my $TRANSLISTDONE={};
@@ -112,19 +126,29 @@ $SIG{__WARN__}=\&fatal;
 
 1;
 
+sub infomode {
+  $INFOMODE=1; $INFODOWNLOAD=0
+}
+
 sub prout {
   my (@txt) = @_;
   my $text=join('',@txt);
+  if (!$DEBUGMODE && (substr($text,0,3) eq ' *>')) { return }
   $text =~ s/\n$//;
+  my ($s,$m,$h) = localtime(time + $FCCTIME);
+  if (length($m)<2) { $m="0$m" }
+  if (length($h)<2) { $h="0$h" }
+  my $tm="[$h:$m] ";
   my @lines = split(/\n/,$text);
   foreach my $line (@lines) {
-    while (length($line)>79) {
-      my $sl=substr($line,0,75)." ..";
-      print STDOUT "\r$sl\n";
-      $line=substr($line,75)
+    while (length($line)>71) {
+      my $sl=substr($line,0,67)." ..";
+      my $space=(' 'x(71-length($sl)));
+      print STDOUT "\r$tm$sl$space\n";
+      $line=substr($line,67)
     }
-    my $space=(' 'x(79-length($line)));
-    print STDOUT "\r$line$space\n"
+    my $space=(' 'x(71-length($line)));
+    print STDOUT "\r$tm$line$space\n"
   }
 }
 
@@ -165,7 +189,7 @@ sub setserv {
 
 sub fccconnect {
   my ($localmode) = @_;
-  my $txt=" * Connecting to FCC-SERVER ";
+  my $txt=" * Connecting to $COIN-SERVER ";
   if ($localmode) {
     prout $txt,join(":",@$FCCSERVERLAN)," .. ";
     $FCCHANDLE=gclient::websocket(@$FCCSERVERLAN,0,\&handlefccserver,0)
@@ -174,9 +198,9 @@ sub fccconnect {
     $FCCHANDLE=gclient::websocket(@$FCCSERVER,0,\&handlefccserver,1)
   }
   if ($FCCHANDLE->{error}) {
-    prout " * Connecting to FCC-Server Failed! $FCCHANDLE->{error}\n"; return 0
+    prout " * Connecting to $COIN-Server Failed! $FCCHANDLE->{error}\n"; return 0
   }
-  $FCCHANDLE->{fcc}={ isparent=>1 };
+  $FCCHANDLE->{fcc}={ isparent=>1, isfccserver => 1 };
   $FCCHANDLE->takeloop();
   return 1
 }
@@ -192,29 +216,47 @@ sub newwall {
 }
 
 sub start {
+  allowsave();
+  if ((defined $_[0]) && (uc($_[0]) eq 'PTTP')) {
+    setcoin('PTTP'); shift @_;
+    $FCCSERVER = [ $FCCSERVERIP, $FCCSERVERPORT ];
+    $FCCSERVERLAN = [ '192.168.1.103', $FCCSERVERPORT ]; # debug on LAN mode (localmode)
+  }
   my ($myport,$slavemode,$localmode,$fccserv) = @_;
   if ($fccserv) {
-    if ($localmode) { $FCCSERVERLAN->[0]=$fccserv } else { $FCCSERVER->[1]=$fccserv }
+    if ($localmode) { $FCCSERVERLAN->[0]=$fccserv } else { $FCCSERVER->[0]=$fccserv }
   }
-  if (-e "update.fcc"){ unlink("update.fcc") }
+  if (-e "update$FCCEXT") { unlink("update$FCCEXT") }
   my $vers=join('.',substr($FCCVERSION,0,2)>>0,substr($FCCVERSION,2,2));
   # in slavemode call $node->takeloop() while $node->{server}{running}
   # use localmode for testing on LAN
-  prout <<EOT;
+  if ($COIN eq 'PTTP') {
+    prout <<EOT;
+
+  PPPP  TTTTT TTTTT  PPPP
+  P   P   T     T    P   P   FULL NODE SERVER v$FCCBUILD
+  PPPP    T     T    PPPP      Ledger Version: $vers
+  P       T     T    P           (C) 2018 Domero
+  P       T     T    P
+
+EOT
+  } else {
+    prout <<EOT;
 
   FFFF  CCC   CCC
   F    C     C          FULL NODE SERVER v$FCCBUILD
   FF   C     C            Ledger Version: $vers
-  F    C     C               (C) 2018 Domero
+  F    C     C              (C) 2018 Domero
   F     CCC   CCC
   
 EOT
+  }
   prout "Opening wallet .. ";
   if (!walletexists()) {
     newwall()
   } else {
-    if (-e 'nodewallet.fcc') { 
-      $WALLET=decode_json(gfio::content('nodewallet.fcc')) 
+    if (-e "nodewallet$FCCEXT") { 
+      $WALLET=decode_json(gfio::content("nodewallet$FCCEXT")) 
     } else {
       if (walletisencoded()) {
         prout "\nEnter wallet password .. ";
@@ -243,17 +285,23 @@ EOT
         if (($ch < 1) || ($ch > $num)) { exit }
         $WALLET=$wlist->[$ch-1]
       }
-      gfio::create('nodewallet.fcc',encode_json({ name => $WALLET->{name}, wallet => $WALLET->{wallet} }))
+      gfio::create("nodewallet$FCCEXT",encode_json({ name => $WALLET->{name}, wallet => $WALLET->{wallet} }))
     }
   }
-  prout $WALLET->{name}." ".$WALLET->{wallet},"\n";
+  prout $WALLET->{name}." ".$WALLET->{wallet};
   prout "Searching our IP .. ";
   my $myip=myip(); if (!$myip) { prout "Failed!\n"; exit }
   my $localip=gclient::localip();
-  prout "$myip ($localip)\n";
-  prout "Starting FCC Node Server $FCCBUILD ($vers)\n";
-  prout "\n +++ Making time and space worth loving for +++\n"; prout(' ');
-  if (!$myport) { $myport=7050 }
+  prout "$myip ($localip)";
+  prout "Starting $COIN Node Server $FCCBUILD ($vers)";
+  prout "+++ Making time and space worth loving for +++"; prout(' ');
+  if (!$myport) {
+    if ($COIN eq 'PTTP') {
+      $myport=9633
+    } else {
+      $myport=7050 
+    }
+  }
   # start node
   $SERVER=gserv::init(\&handleserver,\&serverloop);
   $SERVER->{fcc}={};
@@ -268,9 +316,9 @@ EOT
   $SERVER->{maxclients}=$MAXNODES;
   $SERVER->{websocketmode}=1;
   $SERVER->{killhttp}=1;
-  $SERVER->{pingtime}=60;
+  $SERVER->{pingtime}=80+int(rand(20));
   $SERVER->{debug}=0;
-  $SERVER->{name}="FCC Node $vers ($FCCBUILD) by Chaosje";
+  $SERVER->{name}="$COIN Node $vers ($FCCBUILD) by Chaosje";
   push @{$SERVER->{allowedip}},'*';
   $SERVER->{verbose}=$DEBUG;
   $SERVER->{verbosepingpong}=($DEBUG>1);
@@ -282,19 +330,20 @@ EOT
     $SERVER->{fcc}{mask}=$myip.":".$myport    
   }
   # now we go into infinity
+  prout " ** Starting server $SERVER->{name}";
   $SERVER->start(!$slavemode,\&serverloop);
   if ($SERVER->{error}) {
-    prout prtm()," ** Could not start server: $SERVER->{error}\n"
+    prout " ** Could not start server: $SERVER->{error}\n"
   }
   return $SERVER
 }
 
 sub killserver {
   my ($msg) = @_;
-  if ($SERVER->{killed}) { exit }
-  $SERVER->{killed}=1;
+  if ($SERVQUIT) { exit }
+  $SERVQUIT=1;
   if (!$msg) { $msg="Node-Server terminated" }
-  prout " !! Killing server .. $msg\n";
+  prout " !! Killing server .. $msg";
   savedb();
   my @nodes=keys %$PARENTLIST;
   foreach my $mask (@nodes) {
@@ -310,11 +359,10 @@ sub killserver {
   if ($FCCHANDLE) {
     $FCCHANDLE->wsquit($msg);
   }
-  if ($SERVER) {
-    $SERVER->quit()
-  }
-  prout " *!* Server killed *!*\n";
-  exit 1
+  $SERVER->quit();
+  prout " *!* Server killed *!*";
+  print STDOUT "\n";
+  exit
 }
 
 sub killclient {
@@ -357,10 +405,15 @@ sub fatal {
 #  killserver("Fatal Error"); error(@_)
 }
 sub intquit {
-  killserver('130 Interrupt signal received')
+  #print " ---> Servquit = $SERVQUIT           \n";
+  if (!$SERVQUIT) {
+    killserver('130 Interrupt signal received');
+    $SERVQUIT=1
+  }
+  exit
 }  
 sub termquit {
-  killserver('108 Client forcably killed connection')
+  killserver('108 Client forcably killed connection'); exit
 }
 sub sockquit {
   my $client=$SERVER->{activeclient};
@@ -418,7 +471,8 @@ sub outjson {
   if ($client && $client->{fcc} && !$client->{killed}) {
     if ($DEBUG) {
       my $func=$client->{fcc}{function};
-      if ($client->{fcc}{isparent}) { $func='parent' }
+      if ($client->{fcc}{isfccserver}) { $func='FCC' }
+      elsif ($client->{fcc}{isparent}) { $func='parent' }
       prout "SERV >OUT JSON ($func): "
     }
     if (!$msg) {
@@ -464,6 +518,9 @@ sub outjson {
 sub outnc {
   my ($client,$data) = @_;
   if (($client->{fcc}{function} eq 'node') && ($client->{fcc}{ready})) {
+    if ($DEBUG) {
+      prout "SERV >OUT JSON (node): $data"
+    }
     wsmessage($client,$data)
   }
 }
@@ -473,6 +530,9 @@ sub outparents {
   foreach my $p (keys %$PARENTLIST) {
     my $node=$PARENTLIST->{$p};
     if ($node->{identified}) {
+      if ($DEBUG) {
+        prout "SERV >OUT JSON (parent): $data"
+      }
       gclient::wsout($node->{handle},$data)
     }
   }
@@ -551,9 +611,11 @@ sub addcandidate {
 
   # Do not connect to ourself!
   if (($host eq $SERVER->{fcc}{host}) && ($port eq $SERVER->{fcc}{port})) { return }
-  if (!$SERVER->{fcc}{localmode}) {
-    if ($host eq $SERVER->{fcc}{ip}) { return }
-  }
+  #if (!$SERVER->{fcc}{localmode}) {
+  #  if (!$INFOMODE) {
+  #    if ($host eq $SERVER->{fcc}{ip}) { return }
+  #  }
+  #}
   my $mask=join(":",$host,$port);
   if ($NODES->{$mask}) { return } # already connected as a child
   foreach my $bip (@{$SERVER->{blockedip}}) { if ($bip eq $host) { return } } # blocked by firewall
@@ -601,24 +663,24 @@ sub createsyncblocks {
 }
 
 sub savedb {
-  prout "\n ** Saving databases .. ";
-  save(); prout " ** Databases saved OK!\n";
+  prout " ** Saving databases .. ";
+  save(); prout " ** Databases saved OK!";
 }
 
 sub addnodelist {
   my ($host,$port) = @_;
   my $sm="$host $port";
-  if (!-e 'nodelist.fcc') {
-    gfio::create('nodelist.fcc',$sm)
+  if (!-e "nodelist$FCCEXT") {
+    gfio::create("nodelist$FCCEXT",$sm)
   } else {
-    my @nodes = split(/\n/,gfio::content('nodelist.fcc'));
+    my @nodes = split(/\n/,gfio::content("nodelist$FCCEXT"));
     my @out=();
     foreach my $node (@nodes) {
       if ($node eq $sm) { return }
       push @out,$node
     }
     unshift @out,$sm;
-    gfio::create('nodelist.fcc',join("\n",@out))
+    gfio::create("nodelist$FCCEXT",join("\n",@out))
   }
 }
 
@@ -646,13 +708,13 @@ sub handlefccserver {
   my ($client,$command,$data) = @_;
   if ($DEBUG) {
     if (!$data) { $data="" }
-    prout " <- [FCC] $command = $data\n"
+    prout " <- [$COIN] $command = $data\n"
   }
   if ($command eq 'init') {
     $FCCRECONNECT->{sec}=0
   }
   if ($command eq 'connect') {
-    prout " * Succesfully connected to the FCC-Server\n";
+    prout " * Succesfully connected to the $COIN\-Server";
     if ($FCCINIT >= 65535) { $FCCINIT=16383 } else { $FCCINIT=3 }
     $FCCHANDSHAKE=1
   } elsif ($command eq 'input') {
@@ -661,38 +723,43 @@ sub handlefccserver {
     eval("\$json=decode_json(\$data)");
     $EVALMODE=0;
     if($@){
-      prout "**WARNING** FCC-Server Posted not a Json String!\n$data\n$@\n"
+      prout "**WARNING** $COIN\-Server Posted not a Json String!\n$data\n$@"
     } else {
       my $cmd=$json->{command};
       my $func='cfcc_'.$cmd;
       if (defined(&$func)) { &$func($client,$json) }
-      else { prout "**WARNING** FCC-Server Function '$cmd' not yet implemented!\n" }
+      else { prout "**WARNING** $COIN\-Server Function '$cmd' not yet implemented!" }
     }
   } elsif ($command eq 'quit') {
     if ($FCCHANDLE) {
       if ($FCCRECONNECT->{sec}==0) {
-        prout " *!* ERROR: Lost the connection to the FCC-Server: $data\n";
+        prout " *!* ERROR: Lost the connection to the $COIN\-Server: $data";
         gclient::wsout($FCCHANDLE,$data,'close');
         $FCCHANDLE=undef
       }
     }
     $FCCRECONNECT={ sec => 10, time => time }
   } elsif ($command eq 'error') {
-    prout " *!!* FCC-Server responded with ERROR: $data\n"
+    prout " *!!* $COIN\-Server responded with ERROR: $data"
   }
+}
+
+sub cfcc_error {
+  my ($client,$k) = @_;
+  prout " *!!* $COIN\-Server responded with ERROR: $k->{error}"
 }
 
 sub cfcc_fcctime {
   my ($client,$k) = @_;
   setfcctime($k->{fcctime}-time);
-  prout prtm(),"> [FCC] Time offset set to $FCCTIME\n";
+  prout "> [$COIN] Time offset set to $FCCTIME\n";
   $FCCINIT |= 8;
 }
 
 sub cfcc_nodelist {
   my ($client,$k) = @_;
   my $num=1+$#{$k->{nodes}};
-  prout prtm(),"> [FCC] The Core-network has $num nodes connected\n";
+  prout "> [$COIN] The Core-network has $num nodes connected\n";
   foreach my $node (@{$k->{nodes}}) { addcandidate($node->{host},$node->{port}) }
   $FCCINIT |= 16;
 }
@@ -762,7 +829,7 @@ sub cfcc_download {
     prout " * ERROR updating $UPDATEDIR/$k->{file}: Signature Incorrect\n"
   }
   if ($#{$UPDATEFILES}<0) {
-    gfio::create('update.fcc',1);
+    gfio::create("update$FCCEXT",1);
     killserver("Restarting for updates")
   } else {
     my $file=shift @$UPDATEFILES;
@@ -821,14 +888,11 @@ sub addcoinbase {
     if ($cb->{signature} eq $data->{signature}) { return }
   }  
   push @$COINBASELIST,$data;
-  if ($ADDCOINBASE && ($ADDCOINBASE eq $data->{signature})) {
-    # running behind
-    $TRANSLIST->{$data->{signature}}={ coinbase => 1, transhash => $data->{signature} };
-    $VOTE={ transhash => $data->{signature} };
-    transtoledger({ transhash => $data->{signature} });
-    $ADDCOINBASE=undef
+  if ($VOTING && ($VOTE->{transhash} eq $data->{signature})) {
+    prout " *> Adding coinbase to translist";
+    # we missed this one, catching up
+    $TRANSLIST->{$data->{signature}}={ coinbase => 1, transhash => $data->{signature} }
   }
-  $CYCLELOOP=0
 }
 
 sub cfcc_feepayout {
@@ -842,10 +906,13 @@ sub cfcc_feepayout {
 
 sub cfcc_coinbase {
   my ($client,$k) = @_;
+  prout " *> Coinbase received $k->{coincount}";
   my $sign=dechex($k->{coincount},8);
   $sign.=signoutblockdata($k->{outblocks});
   if (Crypt::Ed25519::verify($sign,hexoct($FCCSERVERKEY),hexoct($k->{signature}))) {
     addcoinbase($k)
+  } else {
+    prout " *> Coinbase Signature failed"
   }
 }
 
@@ -853,7 +920,7 @@ sub cfcc_message {
   my ($client,$k) = @_;
   if ($k->{message}) {
     if (Crypt::Ed25519::verify($k->{message},hexoct($FCCSERVERKEY),hexoct($k->{signature}))) {
-      prout "\n================== FCC Message ====================\n\n$k->{message}\n";
+      prout "\n================== $COIN Message ====================\n\n$k->{message}\n";
       prout "\n=====================================================\n";
     }
   }  
@@ -863,12 +930,51 @@ sub cfcc_shutdown {
   my ($client,$k) = @_;
   if ($k->{message}) {
     if (Crypt::Ed25519::verify($k->{message},hexoct($FCCSERVERKEY),hexoct($k->{signature}))) {
-      gfio::create('update.fcc',1);
+      gfio::create("update$FCCEXT",1);
       prout "\n================== Shutting Down ====================\n\n$k->{message}\n";
       prout "\n=====================================================\n";
-      $SHUTDOWNMODE=1
+      killserver("$COIN Reset requested");
     }
   }
+}
+
+sub cfcc_reset {
+  my ($client,$k) = @_;
+  if ($k->{message}) {
+    if (Crypt::Ed25519::verify($k->{message},hexoct($FCCSERVERKEY),hexoct($k->{signature}))) {
+      gfio::create("update$FCCEXT",1);
+      prout "\n================= Resetting databases ===============\n\n$k->{message}\n";
+      prout "\n=====================================================\n";
+      FCC::fcc::killdb();
+      killserver("$COIN Database Update requested");
+    }
+  }  
+}
+
+sub cfcc_resetip {
+  my ($client,$k) = @_;
+  if ($k->{mask} eq $SERVER->{fcc}{mask}) {
+    if ($k->{message}) {
+      if (Crypt::Ed25519::verify($k->{message},hexoct($FCCSERVERKEY),hexoct($k->{signature}))) {
+        gfio::create("update$FCCEXT",1);
+        killserver("$COIN Restart requested");
+      }
+    }
+  }  
+}
+
+sub cfcc_hardreset {
+  my ($client,$k) = @_;
+  if ($k->{message}) {
+    if (Crypt::Ed25519::verify($k->{message},hexoct($FCCSERVERKEY),hexoct($k->{signature}))) {
+      gfio::create("update$FCCEXT",1);
+      prout "\n================= Resetting Ledger ===============\n\n$k->{message}\n";
+      prout "\n=====================================================\n";
+      FCC::fcc::killdb();
+      unlink("ledger$FCCEXT");
+      killserver("$COIN Hard Restart requested");
+    }
+  }  
 }
 
 ################# Node handling ##########################
@@ -897,26 +1003,26 @@ sub statusmsg {
    my $nminers=(1+$#{$inf->{miners}});
    my $nunknowns=(1+$#{$inf->{unknowns}});
    my $ntrans=(1+$#{[keys %$TRANSLIST]});
+   my $vote='X'; if ($VOTING) { $vote=$VOTE->{round} }
    print STDOUT prtm(),
      ($nparents ? "Par[$nparents] ":"").
      ($nnodes ? "Chi[$nnodes] ":"").
      ($nleaves ? "Leaf[$nleaves] ":"").
      ($nminers ? "Mine[$nminers] ":"").
      ($nunknowns ? "Unkn[$nunknowns] ":"").
-     "Ldg[$LEDGERLEN] Pend[$ntrans]     \r"
+     "Ldg[$LEDGERLEN] Pend[$ntrans] Vote[$vote]     \r"
   }
 }
 
 sub serverloop {
   # The FCC Node Control Kernel
-  if (!$SERVER) { exit }
+  if (!$SERVER) { die "Lost $COIN Server Handle" }
   my $ctm=gettimeofday();
   # parents are a bit different, since we are in non-loopmode for each client, where the server is in loopmode for each of it's clients
   if ($SHUTDOWNMODE) {
     my @tl=keys (%$TRANSLIST);
     if (!$VOTING && ($#tl<0) && !$TRANSDIST && ($#{$TRANSDISTLIST}<0)) {
-      killserver("Shutting down for core-update .. FCC Towards a brighter future!");
-      exit
+      killserver("Shutting down for core-update .. $COIN Towards a brighter future!");
     }
   }
   statusmsg();
@@ -938,7 +1044,7 @@ sub serverloop {
           prout "   - Connecting to $node->{mask} .. "
         }
         addparent($nodes[$start]); $done=1
-      } elsif ($node->{connected} && !$node->{fcc}{identified} && ($ctm-$node->{lastconnect}>=10)) {
+      } elsif ($node->{connected} && !$node->{fcc}{identified} && ($node->{lastconnect} && ($ctm-$node->{lastconnect}>=10))) {
         killclient($node->{handle},"408 Request TimeOut");
         prout "   x TimeOut $node->{mask} (no identify)\n"
       }
@@ -1025,14 +1131,14 @@ sub serverloop {
     } elsif ($FCCINIT == 2) {
       if ($FCCHANDLE) { $FCCHANDLE->takeloop() }
       if (time-$FCCRECONNECT->{time}>5) {
-        prout " *!* ERROR: The FCC-Server seems to be offline ..\n";
-        if (!-e "forward.fcc") {
-          prout " -> You have not done a port-forwarding check yet\n -> You cannot do this while the FCC-Server is offline\n -> Please try again later!";
+        prout " *!* ERROR: The $COIN\-Server seems to be offline ..\n";
+        if (!-e "forward$FCCEXT") {
+          prout " -> You have not done a port-forwarding check yet\n -> You cannot do this while the $COIN\-Server is offline\n -> Please try again later!";
           killserver("Portforwarding check impossible"); return
         }
         $FCCRECONNECT->{time}=time+10;
-        if (-e 'nodelist.fcc') {
-          my @nodes=split(/\n/,gfio::content('nodelist.fcc'));
+        if (-e "nodelist$FCCEXT") {
+          my @nodes=split(/\n/,gfio::content("nodelist$FCCEXT"));
           if ($#nodes >= 0) {
             prout " -> Retrieving nodes from stored nodelist ..\n";
             foreach my $node (@nodes) {
@@ -1051,7 +1157,7 @@ sub serverloop {
           outfcc({ command => 'updatelist' });
           $UPDATEMODE=2
         } elsif ($UPDATEMODE == 3) {
-          if (-e 'forward.fcc') {
+          if (-e "forward$FCCEXT") {
             $UPDATEMODE=0
           } else {
             # port forwarding check, need to be performed only once
@@ -1063,8 +1169,7 @@ sub serverloop {
         } elsif ($UPDATEMODE == 4) {
           if ($ctm - $CALLBACKTIME >= 5) {
             portforwarding();
-            killserver("Port forwarding disabled");
-            exit
+            killserver("Port forwarding disabled"); exit
           }
         }
       } else {
@@ -1127,6 +1232,47 @@ sub serverloop {
         }
       }
       my $num=1+$#responses;
+      if ($INFOMODE) {
+        if ($INFOMODE == 1) {
+          prout " * INFORMATION MODE - Getting information from $num nodes.. ";
+          $INFOTIME=$ctm; $INFOMODE=2
+        } elsif ($INFOMODE == 2) {
+          if ($ctm - $INFOTIME > 5) {
+            my @nodes = sort { $PARENTLIST->{$b}{ledgerlen} <=> $PARENTLIST->{$a}{ledgerlen} } (keys %$PARENTLIST);
+            if ($#nodes < 0) {
+              prout " !*! No nodes connected !";
+              killserver("InfoMode completed");
+              exit
+            }
+            my $cnt=1;
+            foreach my $mask (@nodes) {
+              my $node=$PARENTLIST->{$mask};
+              prout(rsp($cnt,2).". ".rsp($node->{host},15)." ".rsp($node->{port},5)." ".rsp($node->{ledgerlen},12)." ".rsp($node->{blockheight},8)." ".substr($node->{lastcum},0,26));
+              if ($cnt==1) { $INFOLL=$node->{ledgerlen}; $INFONODE=$node->{handle} }
+              $cnt++
+            }
+            if ($INFODOWNLOAD) {
+              $INFOMODE=3; $INFOPOS=0; gfio::create("ledger.download$FCCEXT","");
+            } else {
+              killserver("InfoMode completed");
+              exit              
+            }
+          }
+        } elsif ($INFOMODE == 3) {
+          if (!$INFOREAD) {
+            if ($INFOPOS>=$INFOLL) {
+              prout " * Done reading ledger.download$FCCEXT - $INFOLL bytes";
+              killserver("InfoMode completed");
+              exit
+            }
+            my $len=32768; if ($INFOLL<$INFOPOS+$len) { $len=$INFOLL-$INFOPOS }
+            prout " -> Reading $INFOPOS - $len";
+            $INFOREAD=1;
+            outjson($INFONODE,{ command => 'reqledger', pos => $INFOPOS, length => $len })
+          }
+        }
+        return
+      }
       prout " * Evaluating responses from $num nodes .. ";
       if (!$num) { prout " * No nodes responded. Going into single-core-mode.. now they'll listen to us!\n"; $FCCINIT=16383; return }
       if ($#nodes < 0) { prout " * Nodes that were present has quit during connection-phase\n * Going into single-core-mode.. they have to listen to us now!\n"; $FCCINIT=16383; return }
@@ -1153,17 +1299,29 @@ sub serverloop {
       if ($SYNCBLOCKS->{$LEDGERLEN}{ready}) {
         if (!$LEDGERLEN) { $SYNCINIT=0 }
         if (!ledgerdata($SYNCBLOCKS->{$LEDGERLEN}{data},$SYNCINIT)) {
-          $SYNCERROR++; 
+          $SYNCERROR++;
           if (($SYNCERROR > 10) || ($#nodes <= 0)) {
             prout " !! Error syncing !!\n";
             killserver("Error syncing");
-            return
+          } else {
+            # emperic evidence proves we should hardfork this server at this point
+            killclient($SYNCBLOCKS->{$LEDGERLEN}{node}{handle},"Desynced");
+            # error detected, reread this block
+            my $ll=$LEDGERLEN; my $len=$SYNCBLOCKS->{$LEDGERLEN}{length};
+            delete $SYNCBLOCKS->{$LEDGERLEN};
+            $LASTBLOCK=readlastblock(); $LEDGERLEN=$LASTBLOCK->{pos}+$LASTBLOCK->{next}+4;
+            $len-=($LEDGERLEN-$ll);
+            if ($len > 0) {
+              $SYNCBLOCKS->{$LEDGERLEN} = {
+                length => $len,
+                ready => 0,
+                data => "",
+                reading => 0
+              };
+            }
           }
-          # error detected, reread this block
-          $SYNCBLOCKS->{$LEDGERLEN}{ready}=0;
-          $SYNCBLOCKS->{$LEDGERLEN}{data}="";
-          $SYNCBLOCKS->{$LEDGERLEN}{reading}=0;
         } else {
+          $SYNCERROR=0;
           my $size=$SYNCBLOCKS->{$LEDGERLEN}{length};
           delete $SYNCBLOCKS->{$LEDGERLEN};
           $LEDGERLEN+=$size; $SYNCINIT=0;
@@ -1171,39 +1329,44 @@ sub serverloop {
           if ($LEDGERLEN >= $LEDGERWANTED) {
             prout " * Ledger is synced!\n";
             savedb(); $LASTBLOCK=readlastblock();
-            $FCCINIT=16383; return
+            $FCCINIT=16383
           }
         }
       }
       # get an empty block, lowest position first
-      my $esb=-1;
-      foreach my $sb (sort (keys %$SYNCBLOCKS)) {
-        if (!$SYNCBLOCKS->{$sb}{reading}) { $esb=$sb; last }
-      }
-      if ($esb>=0) {
-        my $end=$esb+$SYNCBLOCKS->{$esb}{length};
-         # prout " >> END = $end\n";
-        my $pos=$REQBLOCKPOS; my $fnd=0;
-        do {
-          $pos++;
-          if ($pos > $#nodes) { $pos=0 }
-          my $node=$PARENTLIST->{$nodes[$pos]};
-           # prout " >> POS=$pos NP=$nodes[$pos] LL=$node->{ledgerlen}\n";
-          if ($node->{identified}) {
-            # node free to accept reading ledgerdata?
-            if (!$node->{sync} && ($node->{ledgerlen}>=$end)) {
-              my $len=$SYNCBLOCKS->{$esb}{length};
-              $node->{sync}=1;
-              $node->{syncpos}=$esb;
-              $node->{synclen}=$len;
-              $node->{synctime}=$ctm;
-              $SYNCBLOCKS->{$esb}{reading}=1;
-              outjson($node->{handle},{ command => 'reqledger', pos => $esb, length => $len });
-              $fnd=1
+      if ($CYCLELOOP == 0) {
+        my $esb=-1;
+        foreach my $sb (sort (keys %$SYNCBLOCKS)) {
+          if (!$SYNCBLOCKS->{$sb}{reading}) { $esb=$sb; last }
+        }
+        if ($esb>=0) {
+          my $end=$esb+$SYNCBLOCKS->{$esb}{length};
+           # prout " >> END = $end\n";
+          my $pos=$REQBLOCKPOS; my $fnd=0;
+          do {
+            $pos++;
+            if ($pos > $#nodes) { $pos=0 }
+            my $node=$PARENTLIST->{$nodes[$pos]};
+             # prout " >> POS=$pos NP=$nodes[$pos] LL=$node->{ledgerlen}\n";
+            if ($node->{identified}) {
+              # node free to accept reading ledgerdata?
+              if (!$node->{sync} && ($node->{ledgerlen}>=$end)) {
+                my $len=$SYNCBLOCKS->{$esb}{length};
+                $node->{sync}=1;
+                $node->{syncpos}=$esb;
+                $node->{synclen}=$len;
+                $node->{synctime}=$ctm;
+                $SYNCBLOCKS->{$esb}{reading}=1;
+                $SYNCBLOCKS->{$esb}{node}=$node;
+                outjson($node->{handle},{ command => 'reqledger', pos => $esb, length => $len });
+                $fnd=1
+              }
             }
-          }
-        } until ($fnd || ($pos == $REQBLOCKPOS));
-        $REQBLOCKPOS=$pos
+          } until ($fnd || ($pos == $REQBLOCKPOS));
+          $REQBLOCKPOS=$pos
+        } else {
+          $SYNCFREE=0
+        }
       }
     } elsif ($FCCINIT == 16383) {
       $SYNCINIT=1; goactive();
@@ -1288,8 +1451,7 @@ sub handleserver {
     } else {
       $CLIENTIP->{$client->{ip}}++;
       if ($CLIENTIP->{$client->{ip}} > 5) {
-        push @{$SERVER->{blockedip}},$client->{ip};
-        $client->{killme}=1;
+        killclient($client,"Maximum connections on this IP exceeded");
         return
       }
     }
@@ -1331,19 +1493,19 @@ sub handleserver {
     my $k; eval { $k=decode_json($data) };
     $EVALMODE=0;
     if ($@) {
-      prout prtm(),"Illegal data received from $client->{ip}:$client->{port}: $data\n";
+      prout "Illegal data received from $client->{ip}:$client->{port}: $data\n";
       killclient($client,$data); return
     }    
     my $cmd=$k->{command};
     if (!$cmd) {
-      prout prtm(),"Illegal data (no command in JSON) received from $client->{ip}:$client->{port}\n";
+      prout "Illegal data (no command in JSON) received from $client->{ip}:$client->{port}\n";
       killclient($client,$data); return
     }
     my $func="c_$cmd";
     if (defined &$func) {
       &$func($client,$k)
     } else {
-      prout prtm(),"Illegal JSON-command '$cmd' received from $client->{ip}:$client->{port}\n";
+      prout "Illegal JSON-command '$cmd' received from $client->{ip}:$client->{port}\n";
       outjson($client,{ command=>'error', error=>"Unknown command given in input" }); 
       fault($client)
     }
@@ -1366,9 +1528,9 @@ sub handlenode {
     if (!$msg) { return }
     $EVALMODE=1;
     my $k; eval { $k=decode_json($msg) };
-   $EVALMODE=0;
+    $EVALMODE=0;
     if ($@) {
-      prout prtm(),"JSON error ($mask): $@\n";
+      prout " !*! JSON error ($mask): $@\n";
       killclient($node,"JSON error: $@\n")
     }
     my $cmd=$k->{command};
@@ -1377,15 +1539,15 @@ sub handlenode {
     if (defined &$proc) {
       &$proc($node,$k)
     } else {
-      prout prtm(),"Illegal command received from $mask: $cmd\n";
+      prout "Illegal command received from $mask: $cmd\n";
       fault($node)
     }
   } elsif ($cmd eq 'error') {
-    prout prtm(),"Lost connection to node $mask: $msg\n";
+    prout "Lost connection to node $mask: $msg\n";
     killclient($node,$msg);
   } elsif ($cmd eq 'quit') {
     if ($FCCINIT == 255) { $REQUESTED-- }
-    prout prtm(),"Node $mask terminated: $msg\n";
+    prout "Node $mask terminated: $msg\n";
     killclient($node,$msg);
   }
 }
@@ -1422,17 +1584,17 @@ sub c_hello {
     killclient($client,"Don't hack"); return
   }
   if ($DEBUG) {
-    prout prtm(),"Response from node $client->{mask} -> Identify as node\n";
+    prout "Response from node $client->{mask} -> Identify as node\n";
   }
   if ($k->{version} gt $FCCVERSION) {
-    prout prtm(),"! Node $client->{mask} has version $k->{version}, we only have version $FCCVERSION";
+    prout "! Node $client->{mask} has version $k->{version}, we only have version $FCCVERSION";
     killclient($client,"Version $k->{version} is not supported by this node");
     return    
   }
   $client->{fcc}{port}=$k->{port};
   $client->{mask}=$mask;
   if (!$PARENTLIST->{$client->{mask}}) {
-    prout prtm(),"! The port the node gave us is unknown in the core-list";
+    prout "! The port the node gave us is unknown in the core-list";
     killclient($client,"The port the node gave us is unknown in the core-list");
     return
   }
@@ -1462,7 +1624,7 @@ sub c_callback {
   my ($client,$k) = @_;
   if (Crypt::Ed25519::verify($SERVER->{fcc}{host}.'callback',hexoct($FCCSERVERKEY),hexoct($k->{signature}))) {
     prout " * Callback received !! Your portforwarding is active !!";
-    gfio::create('forward.fcc',1);
+    gfio::create("forward$FCCEXT",1);
     $UPDATEMODE=0;
     killclient($client,"Succesful callback")
   } else {
@@ -1502,7 +1664,7 @@ sub c_identify {
   }
   if ($k->{version} gt $FCCVERSION) {
     # assume backwards-compatiblity
-    prout prtm()," !*! Client $client->{mask} is running version $k->{version}. We only $FCCVERSION!\n";
+    prout " !*! Client $client->{mask} is running version $k->{version}. We only $FCCVERSION!\n";
     killclient($client,"Version $k->{version} is not supported by this node");
     return
   }
@@ -1510,12 +1672,13 @@ sub c_identify {
     outfcc({ command => 'challenge' }) 
   }
   $client->{fcc}{version}=$k->{version};
-  prout prtm(),"Client $client->{mask} is a $k->{type} v$k->{build} ($k->{version})\n";
+  prout "Client $client->{mask} is a $k->{type} v$k->{build} ($k->{version})\n";
 }
 
 sub c_ready {
   my ($client) = @_;
   if (!$client->{fcc} || !$client->{fcc}{port} || ($client->{fcc}{function} ne 'node')) { killclient($client,"H4x0rz"); return }
+  prout " *> Node $client->{ip}:$client->{port} is identified";
   $client->{fcc}{ready}=1;
 }
 
@@ -1524,12 +1687,26 @@ sub c_transaction {
   if ($FCCINIT < 65535) { return }
   if (!$k->{data} || !$client->{fcc} || !$client->{fcc}{port} || ($client->{fcc}{function} ne 'node')) { killclient($client,"H4x0rz"); return }
   if (!$client->{fcc}{isparent} && !$client->{fcc}{ready}) { killclient($client,"H4x0rz"); return }
-  addtransaction($client,$k->{data})
+  # here we check for illegal voting
+  my $trans=addtransaction($client,$k->{data});  
+  if (!$trans->{nocheck}) {
+    if ($trans->{error}) {
+      prout (" !* Illegal transaction received from $client->{mask} - $trans->{error}");
+      if ($VOTE->{transhash} eq $trans->{transhash}) {
+        $VOTE->{illegal}=1
+      }
+    }
+  }
 }
 
 sub c_coinbasetrans {
   my ($client,$k) = @_;
   if ($FCCINIT < 65535) { return }
+  $k=$k->{data};
+  if (!$k || !$k->{coincount} || !$k->{outblocks} || !$k->{signature}) {
+    fault($client);
+    prout " !*! Illegal coinbase $client->{ip}:$client->{port}"; return
+  }
   my $sign=dechex($k->{coincount},8);
   $sign.=signoutblockdata($k->{outblocks});
   if (Crypt::Ed25519::verify($sign,hexoct($FCCSERVERKEY),hexoct($k->{signature}))) {
@@ -1585,18 +1762,24 @@ sub c_reqledger {
   if ($k->{pos}+$k->{length}>$LEDGERLEN) {
     fault($client); return
   }
-  my $data=zb64(gfio::content('ledger.fcc',$k->{pos},$k->{length}));
+  my $data=zb64(gfio::content("ledger$FCCEXT",$k->{pos},$k->{length}));
   outjson($client,{ command => "ledgerdata", pos => $k->{pos}, data => $data, final => $k->{final} || 0, first => $k->{first} || 0 })
 }
 
 sub c_ledgerdata {
   my ($client,$k) = @_;
   $k->{data}=b64z($k->{data});
+  if ($INFOMODE) {
+    gfio::append("ledger.download$FCCEXT",$k->{data});
+    $INFOREAD=0; $INFOPOS+=32768;
+    return
+  }
   if (!$SYNCING) {
-    ledgerdata($k->{data},$k->{first});
-    if ($k->{final}) {
-      $LASTBLOCK=readlastblock(); $LEDGERLEN=$LASTBLOCK->{pos}+$LASTBLOCK->{next}+4;
+    if (!ledgerdata($k->{data},$k->{first})) {
+      prout " *> Node $client->{ip}:$client->{port} sent illegal ledgerdata";
+      killclient($client,"Desynced")
     }
+    $LASTBLOCK=readlastblock(); $LEDGERLEN=$LASTBLOCK->{pos}+$LASTBLOCK->{next}+4;
     return
   }
   if ($SYNCBLOCKS->{$k->{pos}} && (length($k->{data}) == $SYNCBLOCKS->{$k->{pos}}{length})) {
@@ -1733,6 +1916,7 @@ sub c_signtransaction {
 
 sub c_vote {
   my ($client,$k) = @_;
+  # prout " *> Vote [$k->{round}] $client->{host}:$client->{port} ".substr($k->{transhash},0,20);
   if (!defined $k->{round} || ($k->{round} =~ /[^0-9]/)) { killclient($client,"Illegal voting round") }
   if (!defined $k->{transhash} || (($k->{transhash} !~ /^[0-9A-F]{64}$/) && ($k->{transhash} !~ /^[0-9A-F]{128}$/))) { killclient($client,"Illegal transhash in voting") }
   if (!$VOTING && ($k->{round} == 0)) {
@@ -1747,6 +1931,7 @@ sub c_vote {
     tcum => $k->{tcum}, illegal => $k->{illegal}, consensus => $k->{consensus} 
   };
   $VOTE->{received}[$k->{round}]++;
+  # prout " *> Vote Noted [$k->{round}] $client->{host}:$client->{port} ".substr($k->{transhash},0,20)
 }
 
 ############## Faults made by others ########################
@@ -1792,20 +1977,20 @@ sub addtransaction {
   my $trans=splittransdata($data);
   if ($trans->{error}) {
     prout " *! Transerror: $trans->{error}\n";
-    fault($client); return
+    fault($client); return $trans
   }
   $TRANSDISTDONE->{$client->{mask}.$trans->{transhash}}=1;
-  if ($TRANSLIST->{$trans->{transhash}}) { return } # already present
-  if ($TRANSLISTDONE->{$trans->{transhash}}) { return } # already done
+  if ($TRANSLIST->{$trans->{transhash}}) { $trans->{nocheck}=1; return $trans } # already present
+  if ($TRANSLISTDONE->{$trans->{transhash}}) { $trans->{nocheck}=1; return $trans } # already done
   validateblock($trans);
   if ($trans->{error}) {
     prout " *! Transerror: $trans->{error}\n";
-    fault($client); return
+    fault($client); return $trans
   }
   checkinblocks($trans);
   if ($trans->{error}) {
     prout " *! Transerror: $trans->{error}\n";
-    fault($client); return
+    fault($client); return $trans
   }
   $trans->{status}=0;
   if ($client->{fcc}{function} eq 'leaf') {
@@ -1814,13 +1999,13 @@ sub addtransaction {
   $trans->{tobs}=1;
   prout " ++ Transaction $trans->{transhash} (fee = $trans->{fee})\n";
   $TRANSLIST->{$trans->{transhash}}=$trans;
-  $CYCLELOOP=0;
   if ($TRANSCATCHUP->{$trans->{transhash}}) {
     # if not deleted, used as error-marker in voting round 1
     delete $TRANSCATCHUP->{$trans->{transhash}};
   } else {
     push @$TRANSDISTLIST,$data;
   }
+  return $trans
 }
 
 sub checkinblocks {
@@ -1925,7 +2110,7 @@ sub votesuggest {
   my ($activate) = @_;
   
   if ($VOTING) { return }
-  if ($ADDCOINBASE) { return }
+#  if ($ADDCOINBASE) { return }
 
   # auto garbage collection
   $TRANSCATCHUP={};
@@ -1948,9 +2133,9 @@ sub votesuggest {
 #  prout "********** Votesuggest = $tr\n";
 
   my $nodelist=corelist();
+  my $tm=gettimeofday();
   if ($trans) {
     # we found a transaction to suggest to the core (first voting round)
-    my $tm=gettimeofday();
     $VOTE={
       round => 0,
       transhash => $trans,
@@ -1959,7 +2144,8 @@ sub votesuggest {
       total => 1+$#{$nodelist},
       received => [],
       consensus => 0,
-      start => $tm
+      start => $tm,
+      illegal => 0
     };
     $VOTE->{received}[0]=0;
     $VOTE->{responses}[0]={};
@@ -1973,10 +2159,6 @@ sub votesuggest {
   } elsif ($activate) {
     if (!$TRANSLISTDONE->{$activate}) {
       # TRANSLIST seems to be empty, but they are voting on something.. get it (in voting round 0) and vote along!
-      if (length($activate) == 128) {
-        $coinbase=1;
-        $TRANSLIST->{$activate} = { coinbase => 1, transhash => $activate };
-      }
       my $tm=gettimeofday();
       $VOTE={
         round => 0,
@@ -1987,15 +2169,30 @@ sub votesuggest {
         received => [],
         consensus => 0,
         start => $tm,
+        illegal => 0
       };
       $VOTE->{received}[0]=0;
       $VOTE->{responses}[0]={};
-      $VOTING=1;
-      my $ot={ command => 'vote', transhash => $activate, round => 0, ledgerlen => $LEDGERLEN, tcum => $LASTBLOCK->{tcum}, coinbase => $coinbase };
-      outcorejson($ot)
+      if ($#{$nodelist}<0) {
+        # we are the only node! God save the Mohacans
+        transtoledger($TRANSLIST->{$trans})
+      } else {
+        $VOTING=1;
+        my $ot={ 
+          command => 'vote',
+          transhash => $activate,
+          round => 0,
+          ledgerlen => $LEDGERLEN,
+          tcum => $LASTBLOCK->{tcum},
+          coinbase => $coinbase,
+          dbhash => getdbhash()
+        };
+        outcorejson($ot)
+      }
     }
   }
-  # if ($VOTING) { prout "  **** Tumbling down the rabbithole ****\n" }
+  if ($VOTING) { prout " *> Voting system activated" } else { prout " *> Voting suggestion rejected" }
+  $AVT=0
 }
 
 sub analysevotes {
@@ -2007,17 +2204,23 @@ sub analysevotes {
     $VOTE->{received}[$VOTE->{round}]=0;
     $VOTE->{responses}[$VOTE->{round}]={}
   }
-  if (($VOTE->{received}[$VOTE->{round}] >= $VOTE->{total}) || ($tm-$VOTE->{start}>=5)) {
+  my $dtm=int (100*($tm-$VOTE->{start}))/100; 
+  if ($dtm-$AVT>1) {
+    my $rec=$VOTE->{received}[$VOTE->{round}];
+    prout " *> VOTE [$VOTE->{round}] Received = $rec/$VOTE->{total} Time = $dtm";
+    $AVT=$dtm
+  }
+  if (($VOTE->{received}[$VOTE->{round}] >= $VOTE->{total}) || ($tm-$VOTE->{start} >= 3)) {
     my @rplist=();
     foreach my $mask (keys %{$VOTE->{responses}[$VOTE->{round}]}) {
       my $rp=$VOTE->{responses}[$VOTE->{round}]{$mask}; push @rplist,$rp
     }
     my $nrp = 1 + $#rplist;
-    #prout "Voting: Received = $VOTE->{received}[$VOTE->{round}] NRP = $nrp\n";
+    # prout " *> Voting: Received = $VOTE->{received}[$VOTE->{round}] NRP = $nrp\n";
     if ($#rplist < 0) {
       # we are stalled ..
       if ($VOTE->{total}) {
-        $VOTE->{start}=$tm
+        killserver(" !*! No votes received ($VOTE->{total} expected) !*!"); exit
       } else {
         # we're the only node left in the core (the other one just quit)
         transtoledger($TRANSLIST->{$VOTE->{transhash}})
@@ -2025,40 +2228,26 @@ sub analysevotes {
       return
     }
 
-  ######### Round 0 - Checking ledger sync & catching missing transactions ################
+  ######### Round 0 - Checking ledger sync & catching missing and illegal transactions ################
 
     if ($VOTE->{round} == 0) {
       # syncing transaction round, necessary for checking illegal transactions (distributed flood attack)!
-      my $lll={};
-      foreach my $rp (@rplist) {
-        if (!defined $lll->{$rp->{ledgerlen}}) {
-          $lll->{$rp->{ledgerlen}}=1
-        } else {
-          $lll->{$rp->{ledgerlen}}++
+      # search largest ledgerlength (if garbage, kill node afterwards)
+      my @sortll = sort { $b->{ledgerlen} <=> $a->{ledgerlen} } @rplist;
+      my $llwanted = $sortll[0]{ledgerlen};
+      if ($llwanted > $LEDGERLEN) {
+        # Running behind
+        if ($VOTE->{catchup} && ($tm-$VOTE->{start} < 2.3)) { return } # already syncing
+        my $len=$llwanted-$LEDGERLEN; my $pos=$LEDGERLEN; my $first=1;
+        prout " * Running $len bytes behind, catching up";
+        while ($len>0) {
+          # should be a small block .. but if transactions go very fast on a slow computer, we just keep syncing..
+          my $sz=32768; my $final=0; if ($sz>=$len) { $sz=$len; $final=1 }
+          outjson($sortll[0]{node},{ command => 'reqledger', pos => $pos, length => $sz, first=> $first, final => $final });
+          $pos+=$sz; $len-=$sz; $first=0
         }
-      }
-      my @sll = sort { $lll->{$b} <=> $lll->{$a} } keys %$lll;
-      if ($sll[0] != $LEDGERLEN) {
-        # Desynced !!!
-        if ($sll[0] > $LEDGERLEN) {
-          my $node;
-          foreach my $rp (@rplist) {
-            if ($rp->{ledgerlen} == $sll[0]) {
-              $node=$rp; last
-            }
-          }
-          my $len=$sll[0]-$LEDGERLEN; my $pos=$LEDGERLEN; my $first=1;
-          while ($len>0) {
-            # should be a small block .. but if transactions go very fast on a slow computer, we just keep syncing..
-            my $sz=32768; my $final=0; if ($sz>=$len) { $sz=$len; $final=1 }
-            outjson($node,{ command => 'reqledger', pos => $pos, length => $sz, first=> $first, final => $final });
-            $pos+=$sz; $len-=$sz; $first=0
-          }
-        } else {
-          # Mhzzzz... We have more ledger then everybody else?? Should never happen..
-          # Not sure what to do here yet.. it should catch up.. I guess..
-        }
-      } else {
+        $VOTE->{catchup}=1
+      } elsif ($llwanted == $LEDGERLEN) {
         my $lch={};
         foreach my $rp (@rplist) {
           if ($rp->{tcum}) {
@@ -2072,29 +2261,63 @@ sub analysevotes {
         my @sch = sort { $lch->{$b} <=> $lch->{$a} } keys %$lch;
         if (($#sch>=0) && ($sch[0] ne $LASTBLOCK->{tcum})) {
           # Desynced !!!
-          killserver("Unfortunately we are desynced. Delete ledger.fcc and restart the node."); return
-        }
-      }
-      # catch up missing transactions and vote
-      my $sent={};
-      $VOTE->{round}=1;
-      $VOTE->{total}=1+$#rplist;
-      $VOTE->{start}=$tm;
-      foreach my $rp (@rplist) {
-        if ((!$TRANSLIST->{$rp->{transhash}}) && (length($rp->{transhash}) == 64)) {
-          if (!$sent->{$rp->{transhash}}) { $sent->{$rp->{transhash}}=0 }
-          if ($sent->{$rp->{transhash}}<3) {
-            outjson($rp->{node},{ command => 'reqtrans', transhash => $rp->{transhash} });
-            $TRANSCATCHUP->{$rp->{transhash}}=1;
-            $sent->{$rp->{transhash}}++
+          unlink "ledger$FCCEXT";
+          killserver("Unfortunately the ledger is desynced. The ledger will be deleted. Please restart the node."); exit
+        } else {
+          my $dbl={};
+          foreach my $rp (@rplist) {
+            if ($rp->{dbhash}) {
+              if (!defined $lch->{$rp->{dbhash}}) {
+                $dbl->{$rp->{dbhash}}=1
+              } else {
+                $dbl->{$rp->{dbhash}}++
+              }
+            }
+          }
+          my @sdl = sort { $dbl->{$b} <=> $dbl->{$a} } keys %$dbl;
+          if (($#sdl>=0) && ($sdl[0] ne getdbhash())) {
+            # Desynced !!!
+            killdb();
+            killserver("Unfortunately the databases are desynced. The databases are being rebuild after you restart the node."); exit
+          } else {
+            my $list={};
+            foreach my $rp (@rplist) {
+              $list->{$rp->{transhash}}++
+            }
+            my @slist = sort { $list->{$b} <=> $list->{$a} } keys %$list;
+            my $n=1+$#slist;
+            $VOTE->{transhash}=$slist[0];
+            if (!$TRANSLIST->{$slist[0]} && !$VOTE->{illegal}) {
+              if (!$TRANSCATCHUP->{$slist[0]}) {
+                if ($tm - $VOTE->{start} >= 1) {
+                  $TRANSCATCHUP->{$slist[0]}=1;
+                  my $sent=0;
+                  foreach my $rp (@rplist) {
+                    if ($rp->{transhash} eq $slist[0]) {
+                      outjson($rp->{node},{ command => 'reqtrans', transhash => $rp->{transhash} });
+                      $sent++; if ($sent==3) { last }
+                    }
+                  }
+                }
+              } elsif ($VOTE->{illegal} || ($tm - $VOTE->{start} >= 3)) {
+                # could not fetch transaction or illegal
+                delvote(0); return
+              }
+            } else {
+              $VOTE->{round}=1;
+              $VOTE->{total}=1+$#rplist;
+              $VOTE->{start}=$tm;
+              foreach my $rp (@rplist) {
+                outjson($rp->{node},{ command => 'vote', round => 1, transhash => $VOTE->{transhash}, illegal => $VOTE->{illegal} })
+              }
+            }
           }
         }
-        outjson($rp->{node},{ command => 'vote', round => 1, transhash => $VOTE->{transhash} })
       }
       return
     }
 
-  ########### Round 1 - Initialising first responses #################
+  ########### Voting rounds #################
 
     my $list={}; my $vtot=0; my $illcnt=0;
     foreach my $rp (@rplist) {
@@ -2103,125 +2326,68 @@ sub analysevotes {
       $list->{$rp->{transhash}}+=$q; $vtot+=$q;
     }
     my @slist = sort { $list->{$b} <=> $list->{$a} } keys %$list;
-    # prout "Voting count:\n"; foreach my $s (@slist) { prout "$list->{$s} $s\n" }
-    if ($VOTE->{round} == 1) {
-
-      if ($#slist == 0) {
-        # 100% consensus without voting! (This is the normal state)
-        if ($TRANSLIST->{$slist[0]}) {
-          # this is the perfect state, a perfectly synced core
-          my $tr=$TRANSLIST->{$slist[0]};
-          transtoledger($TRANSLIST->{$slist[0]});
-          return
-        } elsif ($TRANSCATCHUP->{$slist[0]}) {
-          # RED FLAG: this is an attack-state!
-          # we should have this transaction, but it bounced after getting it!
-          # transactions only bounce when invalid (probably we will be signalled to have an invalid too!)
-        } else {
-          # obviously a transaction is a) not received yet b) too fresh
-          my $sent=0;
-          for (my $m=0;$m<=$#rplist;$m++) {
-            if ($rplist[$m]{transhash} eq $slist[0]) {
-              outjson($rplist[$m]{node},{ command => 'reqtrans', transhash => $slist[0] });
-              $sent++; if ($sent == 3) { last }
-            }
-          }
-        }
-      }
-      if (!$TRANSCATCHUP->{$slist[0]}) {
-        $VOTE->{transhash}=$slist[0];
-        $VOTE->{consensus}=int (100 * $list->{$slist[0]} / $vtot);
-      } else {
-        # find the best valid suggestion
-        my $max=0; my $stot=0; my $sug={}; my $select=$VOTE->{transhash};
-        foreach my $rp (@rplist) {
-          if ($TRANSLIST->{$rp->{transhash}}) { 
-            $sug->{$rp->{transhash}}++; $stot++;
-            if ($sug->{$rp->{transhash}}>$max) { $max=$sug->{$rp->{transhash}}; $select=$rp->{transhash} }
-          }
-        }
-        if ($stot) {
-          $VOTE->{transhash}=$select;
-          $VOTE->{consensus}=int (100 * $max / $stot);
-        } else {
-          my @tlist=sort { ($TRANSLIST->{$b}{fee} <=> $TRANSLIST->{$a}{fee}) || ($TRANSLIST->{$a}{fcctime} <=> $TRANSLIST->{$b}{fcctime}) } keys %$TRANSLIST;
-          my $trans;
-          foreach my $t (@tlist) {
-            if (!$TRANSLIST->{$t}{tobs} && !$TRANSLISTDONE->{$t}) {
-              $trans=$t; last
-            }
-          }
-          if ($trans) {
-            $VOTE->{transhash}=$trans;
-            $VOTE->{consensus}=100
-          } else {
-            $VOTING=0; return
-          }
-        }
-      }
-      $VOTE->{round}=2;
-      $VOTE->{start}=$tm;
-      $VOTE->{total}=1+$#rplist;
-      foreach my $rp (@rplist) {
-        my $ill=0; if ($TRANSCATCHUP->{$rp->{transhash}}) { $ill=1 }
-        outjson($rp->{node},{ command => 'vote', round => 2, transhash => $VOTE->{transhash}, illegal => $ill, consensus => $VOTE->{consensus} })
-      }
-
-    } else {
-
-  ############# Voting rounds 2+  - consensus #####################################
-
-      if (($illcnt>1) || ($illcnt && ($VOTE->{total}==1))) {
-        delvote();
-        # now we are out of sync, cannot suggest, must vote?
-        if (($#slist == 0) && ($VOTE->{transhash} eq $rplist[0]->{transhash})) {
-          # all the same invalid
-          return          
-        }
-        foreach my $rp (@rplist) {
-          if (!$TRANSCATCHUP->{$rp->{transhash}}) {
-            # found at least one valid
-            $VOTING=1; last
-          }
-          if (!$VOTING) {
-            # everybody will now have deleted
-            return
-          }
-        }
-      }
-      if ($#slist == 0) {
-        if ($TRANSLIST->{$slist[0]}) {
-          # got consensus!
-          transtoledger($TRANSLIST->{$slist[0]});
-          return
-        }
-      }
+    if ($#slist == 0) {
+      # 100% consensus
       if ($TRANSLIST->{$slist[0]}) {
-        $VOTE->{transhash}=$slist[0];
-        $VOTE->{consensus}=int (100 * $list->{$slist[0]} / $vtot);
+        # vote must be legal or would not be in translist
+        # this is the perfect state, a perfectly synced core, even if we don't agree, then never mind
+        transtoledger($TRANSLIST->{$slist[0]})
       } else {
-        # find best suggestion
-        my $max=0; my $stot=0; my $sug={}; my $select=$VOTE->{transhash};
-        foreach my $rp (@rplist) {
-          if ($TRANSLIST->{$rp->{transhash}}) {
-            if (!$sug->{$rp->{transhash}}) { $sug->{$rp->{transhash}}=1 } else { $sug->{$rp->{transhash}}++ }
-            $stot++;
-            if ($sug->{$rp->{transhash}}>$max) { $max=$sug->{$rp->{transhash}}; $select=$rp->{transhash} }
+        if ($VOTE->{illegal}) {
+          if (!$illcnt) {
+            prout " !*! The core approved a transaction we determined illegal !*!";
+            killserver("Unexpected illegal transaction")
           }
+          delvote(0)
+        } else {
+          # the core voted on a new unknown transaction!
+          if (!$TRANSCATCHUP->{$slist[0]}) {
+            if ($tm - $VOTE->{start} >= 1) {
+              $TRANSCATCHUP->{$slist[0]}=1;
+              my $sent=0;
+              foreach my $rp (@rplist) {
+                if ($rp->{transhash} eq $slist[0]) {
+                  outjson($rp->{node},{ command => 'reqtrans', transhash => $rp->{transhash} });
+                  $sent++; if ($sent==3) { last }
+                }
+              }
+            }
+          } elsif ($VOTE->{illegal} || ($tm - $VOTE->{start} >= 3)) {
+            # could not fetch transaction or illegal
+            delvote(0)
+          }          
         }
-        $VOTE->{transhash}=$select;
-        $VOTE->{consensus}=int (100 * $max / $stot);
       }
-      if ($VOTE->{consensus} > 90) {
-        transtoledger($TRANSLIST->{$VOTE->{transhash}}); return
-      }
+      return
+    }
+    # No consensus!
+    $VOTE->{illegal}=0;
+    $VOTE->{transhash}=$slist[0];
+    if ($TRANSLIST->{$slist[0]}) {
+      # switch vote to majority
+      $VOTE->{consensus}=int (100 * $list->{$slist[0]} / $vtot);
       $VOTE->{round}++;
       $VOTE->{start}=$tm;
-      $VOTE->{total}=1+$#rplist;
       foreach my $rp (@rplist) {
-        outjson($rp->{node},{ command => 'vote', round => $VOTE->{round}, transhash => $VOTE->{transhash}, consensus => $VOTE->{consensus} })
-      }      
+        outjson($rp->{node},{ command => 'vote', round => $VOTE->{round}, transhash => $VOTE->{transhash}, illegal => $VOTE->{illegal}, consensus => $VOTE->{consensus} })
+      }
+      return
     }
+    if (!$TRANSCATCHUP->{$slist[0]}) {
+      if ($tm - $VOTE->{start} >= 1) {
+        $TRANSCATCHUP->{$slist[0]}=1;
+        my $sent=0;
+        foreach my $rp (@rplist) {
+          if ($rp->{transhash} eq $slist[0]) {
+            outjson($rp->{node},{ command => 'reqtrans', transhash => $rp->{transhash} });
+            $sent++; if ($sent==3) { last }
+          }
+        }
+      }
+    } elsif ($VOTE->{illegal} || ($tm - $VOTE->{start} >= 3)) {
+      # could not fetch transaction or illegal
+      delvote(0)
+    }          
   }
 }
 
@@ -2255,21 +2421,22 @@ sub addcoinbasetoledger {
         prout " % Feetransaction created\n";
         foreach my $out (@{$cb->{outblocks}}) {
           if ($out->{wallet} eq $WALLET->{wallet}) {
-            prout "% We earned FCC ".extdec($out->{amount}/100000000)." !\n"
+            prout "% We earned $COIN ".extdec($out->{amount}/100000000)." !\n"
           }
         }
         createfeetransaction($cb->{fcctime},$cb->{blockheight},$cb->{spare},$cb->{signature},$cb->{outblocks});
         return 1
       } else {
-        prout prtm()," % Coinbase created\n";
+        prout " % Coinbase $cb->{coincount} created\n";
         if ($cb->{outblocks}[1]{wallet} eq $WALLET->{wallet}) {
-          prout " % We've earned a bonus of FCC ".extdec($MINEBONUS/100000000)." !\n"
+          prout " % We've earned a bonus of $COIN ".extdec($MINEBONUS/100000000)." !\n"
         }
         createcoinbase($cb->{fcctime},$cb->{coincount},$cb->{signature},$cb->{outblocks});
         return 1
       }
     }
   }
+  prout " *> Coinbase not found";
   return 0
 }
 
@@ -2278,6 +2445,7 @@ sub transtoledger {
   if (length($trans->{transhash}) == 128) {
     if (!addcoinbasetoledger($trans->{transhash})) {
       # still waiting for the FCC-server
+      prout " *> Failed to add coinbase to ledger";
       $ADDCOINBASE=$trans->{transhash}
     }
   } else {
@@ -2294,6 +2462,7 @@ sub transtoledger {
 sub portforwarding {
   if ($FCCRECONNECT->{sec} > 0) { return }
   if ($SERVER->{killed}) { return } # dirty
+  my $CNT="FCC !!"; if ($COIN eq 'PTTP') { $CNT='PTTP !' }
   print <<EOT;
 
 ******************************************************************************
@@ -2313,7 +2482,7 @@ sub portforwarding {
 *     To find this local IP you can use ipconfig or ifconfig                 *
 *                                                                            *
 *     If this is all too difficult for you, stick to your wallet !           *
-*     You don't need a node to be able to use FCC !! Only nerds do.          *
+*     You don't need a node to be able to use $CNT Only nerds do.          *
 *                                                                            *
 *     Good luck,                                                             *
 *                                                                            *
@@ -2326,4 +2495,4 @@ EOT
 
 # I love it when a plan comes together :)
 
-# EOF FCC Node by Chaosje (C) 2018 Domero
+# EOF FCC/PTTP Node by Chaosje (C) 2018 Domero

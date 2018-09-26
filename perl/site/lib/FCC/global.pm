@@ -15,29 +15,30 @@ use warnings;
 use Exporter;
 use vars qw($VERSION @ISA @EXPORT @EXPORT_OK);
 
-$VERSION     = '1.21';
+$VERSION     = '1.99';
 @ISA         = qw(Exporter);
-@EXPORT      = qw($COIN $HP setcoin $FCCVERSION $FCCBUILD $FCCTIME $FCCMAGIC $FCCSERVERKEY $TRANSTYPES $RTRANSTYPES
+@EXPORT      = qw($COIN $HP setcoin $FCCVERSION $FCCBUILD $FCCEXT $FCCTIME $FCCMAGIC $FCCSERVERKEY $TRANSTYPES $RTRANSTYPES
                   $MINIMUMFEE $MINERPAYOUT $MINEBONUS $FCCSERVERIP $FCCSERVERPORT
-                  prtm securehash octhex hexoct hexchar dechex hexdec validh64 encode_base64 decode_base64
+                  prtm securehash octhex hexoct hexchar dechex hexdec validh64 encode_base64 decode_base64 rsp
                   fcctime setfcctime fcctimestring extdec doggy calcfee doggyfee fccstring fccencode zb64 b64z);
 @EXPORT_OK   = qw();
 
 use POSIX;
 use Digest::SHA qw(sha256_hex sha512_hex);
-use gfio 1.08;
+use gfio 1.10;
 use Crypt::Ed25519;
 use Gzip::Faster;
 use gerr qw(error);
 
 our $COIN = "FCC";
 our $FCCVERSION = "0101"; # ledger version
-our $FCCBUILD = "1.21";   # software version
+our $FCCBUILD = $VERSION;   # software version
 our $FCCTIME = tzoffset();
 our $FCCMAGIC = 'FF2F89B12F9A29CAB2E2567A7E1B8A27C8FA9BF7A1ABE76FABA7919FC6B6FF0F';
 our $FCCSERVERIP = '149.210.194.88';
 our $FCCSERVERPORT = 5151;
 our $FCCSERVERKEY = "FCC55202FF7F3AAC9A85E22E6990C5ABA8EFBB73052F6EA1867AF7B96AE23FCC";
+our $FCCEXT = '.fcc';
 our $MINIMUMFEE = 50;
 our $MINERPAYOUT = 1000000000;
 our $MINEBONUS = 50000000;
@@ -57,11 +58,16 @@ $HP->{'A'}=10; $HP->{'B'}=11; $HP->{'C'}=12; $HP->{'D'}=13; $HP->{'E'}=14; $HP->
 1;
 
 sub setcoin {
-  $COIN=$_[0];
+  $COIN=uc($_[0]);
   if ($COIN eq 'PTTP') {
     $FCCMAGIC = "8BF879BEC8FA9EC6CA3E7A96B26F7AA76F6AA4E78BADCFA1665A8A9CD67ADD0F";
     $FCCSERVERPORT = 9612;
     $FCCSERVERKEY = "1111145AFA4FBB1CF8D406A234C4CC361D797D9F8F561913D479DBC28C7A4F3E";
+    $FCCEXT = '.pttp';
+    $FCCBUILD = '1.19';
+    $MINIMUMFEE = 110;
+  } elsif ($COIN ne 'FCC') {
+    die "Unknown coin '$_[0]'"
   }
 }
 
@@ -296,6 +302,12 @@ sub prtm {
   if (length($h)<2) { $h="0$h" }
   print STDOUT "[$h:$m:$s] ";
   return ""
+}
+
+sub rsp {
+  my ($str,$sp) = @_;
+  my $x=($sp-length($str));
+  my $out=' 'x$x; return $out.$str
 }
 
 # EOF FCC::global (C) 2018 Domero

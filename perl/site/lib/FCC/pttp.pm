@@ -45,21 +45,14 @@ sub pttpgenesis {
   $wlist->[61]{name}="Reserves";
   savewallets($wlist);
 
-  # inblock
-  push @$blocks,{
-    type => 'genesis',
-    fcctime => time + $FCCTIME,
-    in => []
-  };
-  # outblocks
-  for (my $i=1;$i<33;$i++) {
+  for (my $i=1;$i<=33;$i++) {
     push @$blocks,{
       type => 'out',
       wallet => $wlist->[$i-1]{wallet},
       amount => "112233445454545"
     }
   }
-  for (my $i=1;$i<27;$i++) {
+  for (my $i=1;$i<=27;$i++) {
     my $block = {
       type => 'out',
       wallet => $wlist->[33+$i-1]{wallet}
@@ -81,7 +74,7 @@ sub pttpgenesis {
     wallet => $wlist->[61]{wallet},
     amount => "50720325900000000"
   };
-  return $blocks
+  return ({ type => 'genesis', fcctime => time + $FCCTIME, in => [] },$blocks)
 }
 
 # EOF FCC::pttp.pm (C) 2018 Domero/PTTPNederland

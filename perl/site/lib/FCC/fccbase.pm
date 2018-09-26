@@ -15,13 +15,14 @@ use warnings;
 use Exporter;
 use vars qw($VERSION @ISA @EXPORT @EXPORT_OK);
 
-$VERSION     = '1.01';
+$VERSION     = '1.02';
 @ISA         = qw(Exporter);
 @EXPORT      = qw(dbadd dbdel dbget dbsave dbload dbprint delcache);
 @EXPORT_OK   = qw();
 
 use gfio 1.08;
 use gerr;
+use FCC::global;
 
 my $HP = {}; for (my $i=0;$i<10;$i++) { $HP->{$i}=$i }
 $HP->{'A'}=10; $HP->{'B'}=11; $HP->{'C'}=12; $HP->{'D'}=13; $HP->{'E'}=14; $HP->{'F'}=15; 
@@ -35,7 +36,7 @@ sub delcache {
 
 sub gettid {
   my ($pos) = @_;
-  my $fh=gfio::open('ledger.fcc');
+  my $fh=gfio::open("ledger$FCCEXT");
   my $sz=$fh->filesize;
   if ($pos>=$sz) {
     if (!$CACHE->{$pos}) {
@@ -217,7 +218,7 @@ sub dbsave {
   my ($db,$name) = @_;
   if (!defined $db) { error "Database not defined" }
   if (!defined $name) { error "Name not defined" }
-  gfio::create("$name.fcc",dbsaveblock($db))
+  gfio::create($name,dbsaveblock($db))
 }
 
 sub dbloadblock {
@@ -243,8 +244,8 @@ sub dbloadblock {
 
 sub dbload {
   my ($name) = @_;
-  if (!-e "$name.fcc") { return [] }
-  my $data=gfio::content("$name.fcc");
+  if (!-e $name) { return [] }
+  my $data=gfio::content($name);
   my ($db,$pos)= @{ dbloadblock($data,0) };
   return $db
 }

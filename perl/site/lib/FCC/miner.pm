@@ -17,7 +17,7 @@ use warnings;
 use Exporter;
 use vars qw($VERSION @ISA @EXPORT @EXPORT_OK);
 
-$VERSION     = '1.01';
+$VERSION     = '1.02';
 @ISA         = qw(Exporter);
 @EXPORT      = qw(fac perm minehash solhash);
 @EXPORT_OK   = qw();
@@ -39,15 +39,15 @@ sub perm {
     my $ind=$m % $dn;  
     $out.=substr($init,$ind,1);
     $m=$m / $dn;  
-    substr($init,$ind,1,substr($init,$dn-1,1));
-    $dn--
+    $dn--;
+    substr($init,$ind,1,substr($init,$dn,1));
   }
   return $out
 }
 
 sub minehash {
   my ($coincount,$suggest) = @_;
-  return securehash('FCC'.dechex($coincount,8).$suggest);
+  return securehash($COIN.dechex($coincount,8).$suggest);
 }
 
 sub solhash {

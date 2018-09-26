@@ -15,18 +15,18 @@ use warnings;
 use Exporter;
 use vars qw($VERSION @ISA @EXPORT @EXPORT_OK);
 
-$VERSION     = '1.21';
+$VERSION     = '1.24';
 @ISA         = qw(Exporter);
-@EXPORT      = qw(version load save deref processledger collectspendblocks inblocklist saldo readblock readlastblock encodetransaction 
-                  addtoledger ledgerdata createcoinbase createtransaction createfeetransaction calculatefee);
+@EXPORT      = qw(version load save allowsave deref processledger collectspendblocks inblocklist saldo readblock readlastblock encodetransaction 
+                  addtoledger ledgerdata createcoinbase createtransaction createfeetransaction calculatefee getdbhash getinblock sealinfo);
 @EXPORT_OK   = qw(walletposlist);
 
 use Crypt::Ed25519;
 use gfio 1.10;
 use gerr;
-use FCC::global 1.21;
-use FCC::wallet 2.11;
-use FCC::fccbase;
+use FCC::global 1.28;
+use FCC::wallet 2.12;
+use FCC::fccbase 1.02;
 
 my $SDB = []; # spendable outblocks in positions (non ordered quick search) => validate
 my $OBL = []; # outblocklist in positions (ordered slow search) => create transaction
@@ -35,12 +35,14 @@ my $LEDGERBUFFER = "";
 my $LEDGERSTACK = [];
 my $REPORTONLY = 0;
 my $LEDGERERROR = "";
+my $BLOCKSAVE = 0;
+my $DBHASH = "";
 
 1;
 
 sub addtoledger {
   my ($blocks) = @_;
-  if (!-e 'ledger.fcc') {
+  if (!-e "ledger$FCCEXT") {
     if (substr($blocks->[0],152,1) ne $TRANSTYPES->{genesis}) {
       error "No ledger found and not writing a genesis block"
     }
@@ -143,16 +145,16 @@ sub encodetransaction {
         $block.='y'x64; # cumhash, to be filled in later this sub (when tid is knwon)
         $block.=dechex($b+1,12); # block-number
         $block.=$FCCVERSION;
-        $block.=$TRANSTYPES->{$outblocks->[0]{type}};
-        $block.=substr($blocks->[0],8,64); # prev tid
-        $block.=$outblocks->[0]{wallet}; # FCC-wallet of receiver
-        $block.=dechex($outblocks->[0]{amount},16); # ICO / GIVE AWAY / DEVELOPERS / TESTERS / FIRST JOINERS!!!
+        $block.=$TRANSTYPES->{$outblocks->[$b]{type}};
+        $block.=substr($blocks->[$#{$blocks}],8,64); # prev tid
+        $block.=$outblocks->[$b]{wallet}; # FCC-wallet of receiver
+        $block.=dechex($outblocks->[$b]{amount},16); # ICO / GIVE AWAY / DEVELOPERS / TESTERS / FIRST JOINERS!!!
         $block.='0000'; # fee = 0 (wouldn't make any sense since I'm the only node starting it up)
         # replace TID
         my $idhash=securehash(substr($block,136));
         substr($block,8,64,$idhash);
         # cumulative hash (validates the whole ledger)
-        my $cumhash=securehash($idhash.substr($blocks->[0],72,64));
+        my $cumhash=securehash($idhash.substr($blocks->[$#{$blocks}],72,64));
         substr($block,72,64,$cumhash);
         push @$blocks,$block
       }
@@ -220,8 +222,8 @@ sub encodetransaction {
 sub creategenesis {
   if ($COIN eq 'PTTP') {
     use FCC::pttp;
-    my $blocks=pttpgenesis();
-    $blocks=encodetransaction($blocks);
+    my ($inblock,$outblocks)=pttpgenesis();
+    my $blocks=encodetransaction($inblock,$outblocks);
     addtoledger($blocks); save();
     return
   }
@@ -281,36 +283,56 @@ sub createfeetransaction {
   addtoledger($blocks);
 }
 
+sub allowsave {
+  $BLOCKSAVE=0
+}
+
 sub save {
+  if ($BLOCKSAVE) { return }
   my $last=readlastblock();
-  if (-e 'savepoint.fcc') {
-    my $data=gfio::content('savepoint.fcc');
+  if (-e "savepoint$FCCEXT") {
+    my $data=gfio::content("savepoint$FCCEXT");
     my ($pos,$cumhash) = split(/ /,$data);
     if ($cumhash eq $last->{tcum}) { return }
   }
-  gfio::create('savepoint.fcc',$last->{pos}." ".$last->{tcum});
+  gfio::create("savepoint$FCCEXT",join(' ',$last->{pos},$last->{tcum},$DBHASH));
   savewalletlist();
   saveoutblocklist();
-  dbsave($SDB,'spenddb')
+  dbsave($SDB,"spenddb$FCCEXT")
 }
 
 sub load {
-  if (!-e 'ledger.fcc') { killdb(); gfio::create('ledger.fcc',''); return }  
+  if (!-e "ledger$FCCEXT") { killdb(); gfio::create("ledger$FCCEXT",''); return }  
   my $lastblock=readlastblock(); my $pos=0; my $cumhash='init';
-  if (-e 'savepoint.fcc') {
-    my $data=gfio::content('savepoint.fcc');
-    ($pos,$cumhash) = split(/ /,$data);
-    loadwalletlist();
-    loadoutblocklist();
-    $SDB=dbload('spenddb');
-    if (($lastblock->{tcum} eq $cumhash) && ($lastblock->{pos} == $pos)) {
-      return
+  if (-e "savepoint$FCCEXT") {
+    my $data=gfio::content("savepoint$FCCEXT");
+    ($pos,$cumhash,$DBHASH) = split(/ /,$data);
+    if (!$DBHASH) {
+      print "\r ** Creating Database Hash"; print " "x54; print "\n";
+      killdb(); $BLOCKSAVE=0; $DBHASH="";
+      processledger(0,{ next => 0, num => -1, tid => '0'x64 })
+    } else {
+      loadwalletlist();
+      loadoutblocklist();
+      $SDB=dbload("spenddb$FCCEXT");
+      if (($lastblock->{tcum} eq $cumhash) && ($lastblock->{pos} == $pos)) {
+        return
+      }
+      processledger($pos,$lastblock)
     }
-    processledger($pos,$lastblock)
   } else {
     processledger(0,{ next => 0, num => -1, tid => '0'x64 })
   }
   save()
+}
+
+sub dbhash {
+  my ($data) = @_;
+  $DBHASH=securehash($DBHASH.$data)
+}
+
+sub getdbhash {
+  return $DBHASH
 }
 
 sub addwallet {
@@ -392,13 +414,13 @@ sub savewalletlist {
       $rawdata.=pack('N',$pos)
     }
   }
-  gfio::create('walletdb.fcc',$rawdata)
+  gfio::create("walletdb$FCCEXT",$rawdata)
 }
 
 sub loadwalletlist {
   $WDB={};
-  if (!-e 'walletdb.fcc') { return }
-  my $data=gfio::content('walletdb.fcc');
+  if (!-e "walletdb$FCCEXT") { return }
+  my $data=gfio::content("walletdb$FCCEXT");
   my $pos=0; my $sz=length($data);
   my @hexlist=(0,1,2,3,4,5,6,7,8,9,'A','B','C','D','E','F');
   while ($pos<$sz) {
@@ -421,13 +443,13 @@ sub saveoutblocklist {
     $rawdata.=pack('n',$pos>>32);
     $rawdata.=pack('N',$pos)
   }
-  gfio::create('outblocks.fcc',$rawdata)
+  gfio::create("outblocks$FCCEXT",$rawdata)
 }
 
 sub loadoutblocklist {
   $OBL=[];
-  if (!-e "outblocks.fcc") { return }
-  my $data=gfio::content('outblocks.fcc');
+  if (!-e "outblocks$FCCEXT") { return }
+  my $data=gfio::content("outblocks$FCCEXT");
   my $pos=0; my $len=length($data);
   while ($pos<$len) {
     push @$OBL,(unpack('n',substr($data,$pos,2))<<32)+unpack('N',substr($data,$pos+2,4)); $pos+=6
@@ -435,13 +457,14 @@ sub loadoutblocklist {
 }
 
 sub killdb {
-  foreach my $file ('savepoint.fcc','spenddb.fcc','outblocks.fcc','walletdb.fcc') {
+  foreach my $file ("savepoint$FCCEXT","spenddb$FCCEXT","outblocks$FCCEXT","walletdb$FCCEXT") {
     if (-e $file) { unlink $file }
   }
+  $BLOCKSAVE=1
 }
 
 sub truncateledger {
-  my $fh=gfio::open('ledger.fcc','rw');
+  my $fh=gfio::open("ledger$FCCEXT",'rw');
   my $sz=$fh->filesize(); my $pos=$sz-1;
   while ($pos>0) {
     $fh->seek($pos);  my $c=$fh->read(1); $pos--;
@@ -458,7 +481,7 @@ sub truncateledger {
     }
     $pos--
   }
-  $fh->close; unlink('ledger.fcc')
+  $fh->close; unlink("ledger$FCCEXT")
 }
 
 sub illegalblock {
@@ -478,7 +501,7 @@ sub illegalblock {
       print "\nLedger truncated!\nPlease start the node again\n\n"; exit 1
     }
     if ($choice eq '2') {
-      unlink('ledger.fcc'); killdb();
+      unlink("ledger$FCCEXT"); killdb();
       print "\nLedger deleted!\nPlease start the node again\n\n"; exit 1
     }
     if ($choice eq '0') {
@@ -507,7 +530,16 @@ sub validatespend {
     }
     $md->{signdata}.=$inblock;
     $md->{inamount}+=$amount;
+  }  
+  my $vw=createwalletaddress($md->{pubkey});
+  if ($vw ne $w) {
+    $bi->{error}="Signing public key does not match the spending wallet";
+    return 0
+  }
+  my $posdata="";
+  foreach my $inblock (@{$md->{inblocks}}) {
     # mark block as unspendable
+    my $res=dbget($SDB,$inblock); $posdata.=$res;
     if (!dbdel($SDB,$inblock)) {
       die "Chaosje: DBDEL should work!"
     }
@@ -528,13 +560,9 @@ sub validatespend {
       $bn--
     } until ($fnd || ($bn<0));
     if (!$fnd) { error "Chaosje, get your code straight" }
-    delwallet($w,$res)
+    delwallet($w,$res);
   }
-  my $vw=createwalletaddress($md->{pubkey});
-  if ($vw ne $w) {
-    $bi->{error}="Signing public key does not match the spending wallet";
-    return 0
-  }
+  dbhash($md->{signdata}.$w.$posdata);
   return 1
 }
 
@@ -684,7 +712,8 @@ sub processblock {
     if ($bi->{amount} > 0) {
       dbadd($SDB,$bi->{tid},$bi->{pos});
       push @$OBL,$bi->{pos};
-      addwallet($bi->{wallet},$bi->{pos})
+      addwallet($bi->{wallet},$bi->{pos});
+      dbhash($bi->{tid}.$bi->{wallet}.$bi->{pos})
     }
   }
   #print "* BLOCK $bi->{num} = $bi->{error}\n"
@@ -693,8 +722,8 @@ sub processblock {
 sub processledger {
   my ($pos,$pbi) = @_;
   if (!$pos) { $pos=0 }
-  if (!-e 'ledger.fcc') { return }
-  my $fh=gfio::open('ledger.fcc');
+  if (!-e "ledger$FCCEXT") { return }
+  my $fh=gfio::open("ledger$FCCEXT");
   if (!$fh->{size}) { $fh->close; return }
   my $size=$fh->{size}-4; my $bi = { next => 0 }; my $bnr=0;
   my $md = { outtogo => 0, signdata => "", sign => "", pubkey => "", outamount => 0, outfee => 0, inamount => 0, inblocks => [] };
@@ -746,7 +775,7 @@ sub processledger {
 
 sub readblock {
   my ($pos) = @_;
-  my $fh=gfio::open('ledger.fcc');
+  my $fh=gfio::open("ledger$FCCEXT");
   $fh->seek($pos); 
   my $bi = { pos => $pos };
   my $prev=$fh->read(4);
@@ -789,6 +818,8 @@ sub readblock {
     $bi->{wallet}=substr($data,217,68);
     $bi->{amount}=hexdec(substr($data,285,16));
     $bi->{fee}=hexdec(substr($data,301,4));
+    $bi->{fccamount}=fccstring($bi->{amount}/100000000);
+    $bi->{fccfee}=fccstring($bi->{amount}*$bi->{fee}/1000000000000);
     if (length($data)>=315) {
       $bi->{expire}=hexdec(substr($data,305,10))
     }
@@ -797,8 +828,8 @@ sub readblock {
 }
 
 sub readlastblock {
-  if (-e 'ledger.fcc') {
-    my $fh=gfio::open('ledger.fcc');  
+  if (-e "ledger$FCCEXT") {
+    my $fh=gfio::open("ledger$FCCEXT");  
     my $sz=$fh->filesize();
     if ($sz>4) {
       $fh->seek($sz-4);
@@ -811,7 +842,7 @@ sub readlastblock {
 }
 
 sub lastledgerprev {
-  my $fh=gfio::open('ledger.fcc');  
+  my $fh=gfio::open("ledger$FCCEXT");  
   my $sz=$fh->filesize();
   $fh->seek($sz-4);
   my $pp=hexdec($fh->read(4));
@@ -820,8 +851,8 @@ sub lastledgerprev {
 }
 
 sub saveledgerdata {
-  if (!-e 'ledger.fcc') { gfio::create('ledger.fcc','') }
-  my $fh=gfio::open('ledger.fcc','rw');
+  if (!-e "ledger$FCCEXT") { gfio::create("ledger$FCCEXT",'') }
+  my $fh=gfio::open("ledger$FCCEXT",'rw');
   my $md = { outtogo => 0, signdata => "", sign => "", pubkey => "", outamount => 0, outfee => 0, inamount => 0 };
   my $iblock=$LEDGERSTACK->[0];
 #  print "Iblock: $iblock\n";
@@ -908,7 +939,7 @@ sub saveledgerdata {
 sub ledgerdata {
   # data can contain part of a block!
   my ($data,$init) = @_;
-  if ($init && (-e "ledger.fcc")) {
+  if ($init && (-e "ledger$FCCEXT")) {
     $LEDGERBUFFER=dechex(lastledgerprev(),4)
   }
   $LEDGERBUFFER.=$data;
@@ -938,19 +969,19 @@ sub ledgerdata {
   return 1
 }
 
-########################################
+########### FEE #############################
 
 sub calculatefee {
  my ($spos,$len) = @_; 
  my $bpos=$spos;
  my $epos=$spos+$len;
- my $fh=gfio::open('ledger.fcc');
+ my $fh=gfio::open("ledger$FCCEXT");
  if ($fh->filesize()<$epos) {
-   return 0
+   $fh->close(); return 0
  }
  my $totfee=0;
  # Calculate total Fee till the End of Pos+Length
- while($spos < $epos){
+ while($spos+305 <= $epos){
    $fh->seek($spos+4);
    my $next=hexdec($fh->read(4)); # Next Block Pos
    $fh->seek($spos+152);
@@ -962,14 +993,14 @@ sub calculatefee {
    }
    $spos+=$next;
  }
- return $totfee
+ $fh->close(); return $totfee
 }
 
 ###############################################################
 
 sub inblocklist {
   my ($blocks) = @_;
-  my $fh=gfio::open('ledger.fcc');
+  my $fh=gfio::open("ledger$FCCEXT");
   my $ibl=[];
   foreach my $b (@$blocks) {
     $fh->seek($b+8); push @$ibl,$fh->read(64)
@@ -983,7 +1014,7 @@ sub collectspendblocks {
   my ($wid,$amount,$spended) = @_;
   my %sp=(); if ($spended) { foreach my $s (@$spended) { $sp{$s}=1 } }
   my $coll=0; my $blocks=[];
-  my $fh=gfio::open('ledger.fcc');
+  my $fh=gfio::open("ledger$FCCEXT");
   my $wpl=walletposlist($wid);
   my $fcctime = time + $FCCTIME;
   foreach my $obp (@$wpl) {
@@ -1015,10 +1046,63 @@ sub collectspendblocks {
   return ([],0)
 }
 
+sub getinblock {
+  my ($pos) = @_;
+  my $fh=gfio::open("ledger$FCCEXT");
+  if (!$pos) { return readblock(0) }
+  $fh->seek($pos-1);
+  my $dmt=$fh->read(1);
+  if ($dmt ne 'z') {
+    error "GetInBlock: Illegal position given - $pos"
+  }
+  do {
+    $fh->seek($pos); my $prev=hexdec($fh->read(4));
+    $fh->seek($pos+152); my $type=hexdec($fh->read(1));
+    if ($type ne $TRANSTYPES->{out}) {
+      return readblock($pos)
+    }
+    $pos-=$prev
+  } until ($pos<0)
+}
+
+sub sealinfo {
+  my ($pos) = @_;
+  my $info = { inblock => getinblock($pos), outblocks => [] };
+  $info->{size}=$info->{inblock}{next}; $pos=$info->{inblock}{pos}+$info->{size};
+  $info->{amount}=0; $info->{change}=0; $info->{fee}=0;
+  my $block;
+  for (my $b=1;$b<=$info->{inblock}{nout};$b++) {
+    $block=readblock($pos);
+    if ($block->{type} eq $TRANSTYPES->{out}) {
+      push @{$info->{outblocks}},$block;
+      if (($b == $info->{inblock}{nout}) && !$block->{fee} && ($info->{inblock}{type} eq $TRANSTYPES->{in})) {
+        $info->{change}=$block->{amount}
+      } else {
+        $info->{amount}+=$block->{amount};
+        $info->{fee}+=$block->{amount}*$block->{fee}/10000;
+      }
+      $info->{size}+=$block->{next}; $pos+=$block->{next}
+    }
+  }
+  $info->{change}=fccstring($info->{change}/100000000);
+  $info->{amount}=fccstring($info->{amount}/100000000);
+  $info->{fee}=fccstring($info->{fee}/100000000);
+  return $info
+}
+
+sub checkgenesis {
+  my ($pubkey) = @_;
+  my $wallet=createwalletaddress($pubkey);
+  my $list=collectspendblocks($wallet,1);
+  my $pos=$list->[0];
+  my $iblock=getinblock($pos);
+  return ($iblock->{type} eq $TRANSTYPES->{genesis})
+}
+
 sub saldo {
   my ($wid) = @_;
   my $coll=0;
-  my $fh=gfio::open('ledger.fcc');
+  my $fh=gfio::open("ledger$FCCEXT");
   my $wpl=walletposlist($wid);
   foreach my $obp (@$wpl) {
     $fh->seek($obp+217);
