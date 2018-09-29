@@ -44,7 +44,7 @@ Download the FCC wallet or node from :  https://github.com/FactorialCoin/FCC
 
 Download the PTTP wallet or node from :  https://github.com/FactorialCoin/PTTP
 
-Directory FCC containce the Wallet and Node start and run scripts for all available Os's.
+Only the Installer containce the Wallet and Node start and run scripts for all available Os's.
 
 <hr>
 
