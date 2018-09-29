@@ -9,7 +9,7 @@ You can earn FCC/PTTP by mining it or running a node in which case you will get 
 <p>PTTP Blockchain Explorer:<br><li>https://pttp.factorialcoin.nl:9613/</li></p>
 
 <hr>
-Download Perl & FCC/PTTP Install:
+<p>Download Perl & FCC/PTTP Install:</p>
 
 <p>Windows Install Pack (perl included):
 <li>(FCC) https://factorialcoin.nl/download/FCC_Install_Windows_0122.zip</li>
@@ -24,7 +24,7 @@ Download Perl & FCC/PTTP Install:
 <li>(PTTP) https://pttp.factorialcoin.nl//PTTP_0102_Macintosh.rar</li>
 </p>
 <hr>
-GitHub Install:
+<p>GitHub Install:</p>
 
 Download the Domero Perl-Base from https://github.com/FactorialCoin/base/ repository 
 <br>(zip) https://github.com/FactorialCoin/base/archive/master.zip 
