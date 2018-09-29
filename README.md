@@ -5,11 +5,8 @@ It allows to participate in one of the fastest and most secure Crypto Currencies
 You can earn FCC/PTTP by mining it or running a node in which case you will get part of the fees payed over transactions.
 
 <hr>
-FCC Blockchain Explorer: 
-<li>https://factorialcoin.nl:5152/</li>
-
-PTTP Blockchain Explorer:
-<li>https://pttp.factorialcoin.nl:9613/</li>
+<p>FCC Blockchain Explorer:<br><li>https://factorialcoin.nl:5152/</li></p>
+<p>PTTP Blockchain Explorer:<br><li>https://pttp.factorialcoin.nl:9613/</li></p>
 
 <hr>
 Download Perl & FCC/PTTP Install:
