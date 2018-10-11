@@ -17,7 +17,7 @@ use warnings;
 use Exporter;
 use vars qw($VERSION @ISA @EXPORT @EXPORT_OK);
 
-$VERSION     = '2.01';
+$VERSION     = '2.10';
 @ISA         = qw(Exporter gclient);
 @EXPORT      = qw();
 @EXPORT_OK   = qw(startleaf leafloop outnode closeleaf balance solution sign transfer);
@@ -27,12 +27,12 @@ use gerr qw(error);
 use gfio 1.10;
 use Digest::SHA qw(sha256_hex sha512_hex);
 use IO::Socket::INET;
-use gclient 7.2.2;
-use gserv 3.1.2;
+use gclient 7.7.3;
+use gserv 4.3.2;
 use Time::HiRes qw(gettimeofday usleep);
-use FCC::global;
-use FCC::wallet 2.01 qw(validwallet);
-use FCC::fcc;
+use FCC::global 2.01;
+use FCC::wallet 2.12 qw(validwallet);
+use FCC::fcc 1.25;
 
 my $DEBUG = 0;
 
@@ -90,15 +90,15 @@ sub handle_leaf {
   } elsif ($command eq 'input') {
     handleinput($leaf,$data)
   } elsif ($command eq 'error') {
-    &$func($leaf,'disconnect',{ error => $data });
     gclient::wsquit($leaf);
     print "Leaf exited with error: $data\n\n";
+    &$func($leaf,'disconnect',{ error => $data });
   } elsif ($command eq 'quit') {
-    &$func($leaf,'disconnect',{ error => $data });
     print "Lost connection to node: $data\n\n";
+    &$func($leaf,'disconnect',{ error => $data });
   } elsif ($command eq 'close') {
-    &$func($leaf,'disconnect',{ error => $data });
     print "Lost connection to node: $data\n\n";
+    &$func($leaf,'disconnect',{ error => $data });
   } elsif ($command eq 'connect') {
     my ($tm,$ip) = split(/ /,$data);
     $leaf->{connected}=1;
@@ -172,6 +172,17 @@ sub history {
 sub solution {
   my ($leaf,$wallet,$solhash) = @_;
   outnode($leaf,{ command => 'solution', wallet => $wallet, solhash => $solhash })
+}
+
+sub ledgerinfo {
+  my ($leaf) = @_;
+  outnode($leaf,{ command => 'ledgerinfo' })
+}
+
+sub getledgerdata {
+  my ($leaf,$pos,$length,$final) = @_;
+  if (!$final) { $final=0 }
+  outnode($leaf,{ command => 'reqledger', pos => $pos, length => $length, final => $final })
 }
 
 ################# HANDLE INPUT ########################################
@@ -264,6 +275,18 @@ sub c_solution {
   my ($leaf,$k) = @_;
   my $func=$leaf->{leafcaller};
   &$func($leaf,'solution',$k)  
+}
+
+sub c_ledgerresponse {
+  my ($leaf,$k) = @_;
+  my $func=$leaf->{leafcaller};
+  &$func($leaf,'ledgerinfo',$k)
+}
+
+sub c_ledgerdata {
+  my ($leaf,$k) = @_;
+  my $func=$leaf->{leafcaller};
+  &$func($leaf,'ledgerdata',$k)
 }
 
 # EOF leaf.pm (C) 2018 Chaosje, Domero 

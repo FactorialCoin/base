@@ -15,7 +15,7 @@ use warnings;
 use Exporter;
 use vars qw($VERSION @ISA @EXPORT @EXPORT_OK);
 
-$VERSION     = '1.02';
+$VERSION     = '1.03';
 @ISA         = qw(Exporter);
 @EXPORT      = qw(dbadd dbdel dbget dbsave dbload dbprint delcache);
 @EXPORT_OK   = qw();
@@ -218,7 +218,10 @@ sub dbsave {
   my ($db,$name) = @_;
   if (!defined $db) { error "Database not defined" }
   if (!defined $name) { error "Name not defined" }
-  gfio::create($name,dbsaveblock($db))
+  my $data=dbsaveblock($db);
+  if (length($data) > 4) {
+    gfio::create($name,$data)
+  }
 }
 
 sub dbloadblock {

@@ -4,9 +4,9 @@ package FCC::node;
 
 #######################################
 #                                     #
-#     FCC Node                        #
+#     FCC & PTTP Node                 #
 #                                     #
-#    (C) 2017 Domero                  #
+#    (C) 2018 Chaosje, Domero         #
 #                                     #
 #######################################
 
@@ -16,7 +16,7 @@ use warnings;
 use Exporter;
 use vars qw($VERSION @ISA @EXPORT @EXPORT_OK);
 
-$VERSION     = '2.32';
+$VERSION     = '3.01';
 @ISA         = qw(Exporter);
 @EXPORT      = ();
 @EXPORT_OK   = qw();
@@ -27,12 +27,12 @@ use gerr;
 use gfio 1.10;
 use Digest::SHA qw(sha256_hex sha512_hex);
 use Crypt::Ed25519;
-use gserv 4.2.1;
-use gclient 7.6.1;
+use gserv 4.3.2;
+use gclient 7.7.3;
 use Time::HiRes qw(gettimeofday usleep);
-use FCC::global 1.31;
+use FCC::global 2.01;
 use FCC::wallet 2.12;
-use FCC::fcc 1.22;
+use FCC::fcc 1.25;
 
 my $DEBUG = 0;
 my $DEBUGMODE = 0;
@@ -88,14 +88,17 @@ my $PARENTLIST={};
 my $NODES={};
 my $LEAVES={};
 my $CLIENTIP={};
-my $SYNCING=1;
+
+my $SYNC={};
+my $SYNCING=0;
+my $FIRSTSYNC=1;
 my $LEDGERWANTED=0;
+my $SYNCPOS=0;
+my $SYNCBUF={};
+my $SYNCSTORED=0;
 my $REQUESTED=0;
 my $REQBLOCKPOS=0;
-my $SYNCBLOCKS={};
-my $SYNCERROR=0;
-my $SYNCINIT=1;
-my $SYNCFREE=1;
+
 my $TRESLIST={};
 my $TRANSLIST={};
 my $TRANSLISTDONE={};
@@ -343,7 +346,7 @@ sub killserver {
   if ($SERVQUIT) { exit }
   $SERVQUIT=1;
   if (!$msg) { $msg="Node-Server terminated" }
-  prout " !! Killing server .. $msg";
+  prout " !! Killing server .. $msg";  
   savedb();
   my @nodes=keys %$PARENTLIST;
   foreach my $mask (@nodes) {
@@ -632,11 +635,7 @@ sub addcandidate {
       tried => 0,
       ledgerlen => 0,
       lastcum => "",
-      blockheight => -1,
-      sync => 0,
-      syncpos => 0,
-      synclen => 0,
-      synctime => 0
+      blockheight => -1
     }
   }
 }
@@ -646,20 +645,6 @@ sub minerspresent {
     if ($leaf->{fcc} && $leaf->{fcc}{function} eq 'miner') { return 1 }
   }
   return 0
-}
-
-sub createsyncblocks {
-  $SYNCBLOCKS={};
-  my $togo=$LEDGERWANTED-$LEDGERLEN;
-  my $nb=$togo>>15; my $pos=$LEDGERLEN;
-  for (my $i=0;$i<$nb;$i++) {
-    $SYNCBLOCKS->{$pos}={ length=>32768, data=>undef, reading=>0, ready=>0 };
-    $pos+=32768
-  }
-  my $rest=$LEDGERWANTED-$pos;
-  if ($rest) {
-    $SYNCBLOCKS->{$pos}={ length=>$rest, data=>undef, reading=>0, ready=>0 };
-  }
 }
 
 sub savedb {
@@ -990,7 +975,6 @@ sub goactive {
     version=>$FCCVERSION
   });
   $FCCINIT |= 32767;
-  $SYNCING=0;
 }
 
 sub statusmsg {
@@ -1005,12 +989,12 @@ sub statusmsg {
    my $ntrans=(1+$#{[keys %$TRANSLIST]});
    my $vote='X'; if ($VOTING) { $vote=$VOTE->{round} }
    print STDOUT prtm(),
-     ($nparents ? "Par[$nparents] ":"").
-     ($nnodes ? "Chi[$nnodes] ":"").
-     ($nleaves ? "Leaf[$nleaves] ":"").
-     ($nminers ? "Mine[$nminers] ":"").
-     ($nunknowns ? "Unkn[$nunknowns] ":"").
-     "Ldg[$LEDGERLEN] Pend[$ntrans] Vote[$vote]     \r"
+     ($nparents ? "Par=$nparents ":"").
+     ($nnodes ? "Chld=$nnodes ":"").
+     ($nleaves ? "Lvs=$nleaves ":"").
+     ($nminers ? "Min=$nminers ":"").
+     ($nunknowns ? "U=$nunknowns ":"").
+     "Pnd=$ntrans Vote=$vote Ldg=$LEDGERLEN     \r"
   }
 }
 
@@ -1134,7 +1118,7 @@ sub serverloop {
         prout " *!* ERROR: The $COIN\-Server seems to be offline ..\n";
         if (!-e "forward$FCCEXT") {
           prout " -> You have not done a port-forwarding check yet\n -> You cannot do this while the $COIN\-Server is offline\n -> Please try again later!";
-          killserver("Portforwarding check impossible"); return
+          killserver("Portforwarding check impossible"); exit
         }
         $FCCRECONNECT->{time}=time+10;
         if (-e "nodelist$FCCEXT") {
@@ -1148,7 +1132,7 @@ sub serverloop {
           }
         }
         prout " -> I have no way to find any nodes .. try again later!\n";
-        killserver("Missing nodelist"); return
+        killserver("Missing nodelist"); exit
       }
     } elsif ($FCCINIT == 3) {
       if ($UPDATEMODE >= 1) {
@@ -1180,12 +1164,12 @@ sub serverloop {
       }
     } elsif ($FCCINIT == 31) {
       # do we have nodes to sync the ledger?
-      my @nodes=keys %{$PARENTLIST}; my $num=1+$#nodes;
+      my @nodes=keys %$PARENTLIST; my $num=1+$#nodes;
       if (!$num) {
-        prout " * There are no nodes in the pool\n";
+        prout " * There are no active nodes in the pool\n";
         $FCCINIT=16383
       } else {
-        prout " * Accumulating nodes from the pool of $num nodes .. \n";      
+        prout " * Accumulating nodes from the pool of $num nodes .. \n";
         $FCCINIT=63; $TRYTIME=$ctm
       }
     } elsif ($FCCINIT == 63) {
@@ -1222,7 +1206,7 @@ sub serverloop {
       }
       # parting nodes are handled in killclient, so every node should answer
       if ($total >= $REQUESTED) { $FCCINIT=511 } 
-    } elsif ($FCCINIT == 511) {
+    } elsif ($FCCINIT == 511) {      
       my @responses=();
       my @nodes = sort { $PARENTLIST->{$b}{ledgerlen} <=> $PARENTLIST->{$a}{ledgerlen} } (keys %$PARENTLIST);
       foreach my $mask (@nodes) {
@@ -1274,8 +1258,14 @@ sub serverloop {
         return
       }
       prout " * Evaluating responses from $num nodes .. ";
-      if (!$num) { prout " * No nodes responded. Going into single-core-mode.. now they'll listen to us!\n"; $FCCINIT=16383; return }
-      if ($#nodes < 0) { prout " * Nodes that were present has quit during connection-phase\n * Going into single-core-mode.. they have to listen to us now!\n"; $FCCINIT=16383; return }
+      if (!$num) { 
+        prout " * No nodes responded. Going into single-core-mode.";
+        $FCCINIT=16383; return
+      }
+      if ($#nodes < 0) { 
+        prout " * Nodes that were present has quit during connection-phase\n * Going into single-core-mode.";
+        $FCCINIT=16383; return
+      }
       $LEDGERWANTED=$PARENTLIST->{$nodes[0]}{ledgerlen};
       my $todo=$LEDGERWANTED-$LEDGERLEN;
       if ($todo < 0) {
@@ -1290,86 +1280,12 @@ sub serverloop {
       }
     } elsif ($FCCINIT == 1023) {
       # get ledgerdata
-      createsyncblocks(); $REQBLOCKPOS=-1;
-      $FCCINIT=2047
-    } elsif ($FCCINIT == 2047) {
-      # ready to add to ledger?
-      my @nodes=(keys %$PARENTLIST);
-      if ($#nodes < 0) { $FCCINIT=16383 }
-      if ($SYNCBLOCKS->{$LEDGERLEN}{ready}) {
-        if (!$LEDGERLEN) { $SYNCINIT=0 }
-        if (!ledgerdata($SYNCBLOCKS->{$LEDGERLEN}{data},$SYNCINIT)) {
-          $SYNCERROR++;
-          if (($SYNCERROR > 10) || ($#nodes <= 0)) {
-            prout " !! Error syncing !!\n";
-            killserver("Error syncing");
-          } else {
-            # emperic evidence proves we should hardfork this server at this point
-            killclient($SYNCBLOCKS->{$LEDGERLEN}{node}{handle},"Desynced");
-            # error detected, reread this block
-            my $ll=$LEDGERLEN; my $len=$SYNCBLOCKS->{$LEDGERLEN}{length};
-            delete $SYNCBLOCKS->{$LEDGERLEN};
-            $LASTBLOCK=readlastblock(); $LEDGERLEN=$LASTBLOCK->{pos}+$LASTBLOCK->{next}+4;
-            $len-=($LEDGERLEN-$ll);
-            if ($len > 0) {
-              $SYNCBLOCKS->{$LEDGERLEN} = {
-                length => $len,
-                ready => 0,
-                data => "",
-                reading => 0
-              };
-            }
-          }
-        } else {
-          $SYNCERROR=0;
-          my $size=$SYNCBLOCKS->{$LEDGERLEN}{length};
-          delete $SYNCBLOCKS->{$LEDGERLEN};
-          $LEDGERLEN+=$size; $SYNCINIT=0;
-          # done?
-          if ($LEDGERLEN >= $LEDGERWANTED) {
-            prout " * Ledger is synced!\n";
-            savedb(); $LASTBLOCK=readlastblock();
-            $FCCINIT=16383
-          }
-        }
+      if (!$SYNCING) {
+        $SYNCPOS=$LEDGERLEN; $FIRSTSYNC=1; $SYNCING=1
       }
-      # get an empty block, lowest position first
-      if ($CYCLELOOP == 0) {
-        my $esb=-1;
-        foreach my $sb (sort (keys %$SYNCBLOCKS)) {
-          if (!$SYNCBLOCKS->{$sb}{reading}) { $esb=$sb; last }
-        }
-        if ($esb>=0) {
-          my $end=$esb+$SYNCBLOCKS->{$esb}{length};
-           # prout " >> END = $end\n";
-          my $pos=$REQBLOCKPOS; my $fnd=0;
-          do {
-            $pos++;
-            if ($pos > $#nodes) { $pos=0 }
-            my $node=$PARENTLIST->{$nodes[$pos]};
-             # prout " >> POS=$pos NP=$nodes[$pos] LL=$node->{ledgerlen}\n";
-            if ($node->{identified}) {
-              # node free to accept reading ledgerdata?
-              if (!$node->{sync} && ($node->{ledgerlen}>=$end)) {
-                my $len=$SYNCBLOCKS->{$esb}{length};
-                $node->{sync}=1;
-                $node->{syncpos}=$esb;
-                $node->{synclen}=$len;
-                $node->{synctime}=$ctm;
-                $SYNCBLOCKS->{$esb}{reading}=1;
-                $SYNCBLOCKS->{$esb}{node}=$node;
-                outjson($node->{handle},{ command => 'reqledger', pos => $esb, length => $len });
-                $fnd=1
-              }
-            }
-          } until ($fnd || ($pos == $REQBLOCKPOS));
-          $REQBLOCKPOS=$pos
-        } else {
-          $SYNCFREE=0
-        }
-      }
+      syncledger();
     } elsif ($FCCINIT == 16383) {
-      $SYNCINIT=1; goactive();
+      goactive();
     }
     $LASTCLIENTRUN=$ctm
   }
@@ -1408,6 +1324,116 @@ sub checkleafjob {
         outjson($client,{ command=>'newtransaction', transid=>$job->{transid}, sign=>$sign, fcctime=>$fcctime })
       }
     }
+  }
+}
+
+sub getsyncpos {
+  my $pos=$SYNCPOS; my $opos=$pos;
+  do {
+    $opos=$pos;
+    foreach my $slot (keys %$SYNC) {
+      if ($SYNC->{$slot}{pos} == $pos) {
+        $pos+=$SYNC->{$slot}{length}
+      }
+    }
+    while ($SYNCBUF->{$pos}) {
+      $pos+=length($SYNCBUF->{$pos})
+    }
+  } until ($pos == $opos);
+  return $pos
+}
+
+sub syncledger {
+  my @nodes = sort { $PARENTLIST->{$b}{ledgerlen} <=> $PARENTLIST->{$a}{ledgerlen} } (keys %$PARENTLIST);
+  if ($#nodes < 0) {
+    prout " *!* No nodes left to sync with .. advisable to delete ledger, and restart"; killserver("Error syncing"); exit
+  }
+  foreach my $slot (keys %$SYNC) {
+    $SYNC->{$slot}{ok}=0
+  }
+  while ($SYNCBUF->{$SYNCPOS}) {
+    if (ledgerdata($SYNCBUF->{$SYNCPOS})) {
+      my $len=length($SYNCBUF->{$SYNCPOS});
+      delete $SYNCBUF->{$SYNCPOS};
+      $SYNCSTORED--;
+      $SYNCPOS+=$len
+    } else {
+      delete $SYNCBUF->{$SYNCPOS};
+      $SYNCSTORED--;
+      $SYNCPOS=-s "ledger$FCCEXT";
+      $FIRSTSYNC=1
+    }
+  }
+  my $tm=gettimeofday();
+  foreach my $mask (@nodes) {
+    my $node=$PARENTLIST->{$mask};
+    if ($node->{identified} && (!$SYNC->{$mask} || !$SYNC->{$mask}{busy})) {
+      if ($LEDGERWANTED <= $node->{ledgerlen}) {
+        my $len=32768; my $pos=getsyncpos();
+        if ($pos + $len >= $LEDGERWANTED) { $len=$LEDGERWANTED - $pos }
+        if ($len > 0) {
+          $SYNC->{$mask}={
+            ok => 1,
+            node => $node,
+            busy => 1,
+            ready => 0,
+            pos => $pos,
+            length => $len,
+            data => "",
+            time => $tm,
+            first => $FIRSTSYNC
+          };
+          $FIRSTSYNC=0;
+          outjson($node->{handle},{ command => 'reqledger', pos => $pos, length => $len });
+        }
+      } else {
+        # node catched up yet?
+        if (!$SYNC->{$mask}{busy}) {
+          outjson($node->{handle},{ command => 'ledgerinfo' });
+          $SYNC->{$mask}{busy}=1
+        }
+      }
+    } elsif ($SYNC->{$mask}{ready}) {
+      if ($SYNC->{$mask}{pos} == $SYNCPOS) {
+        if (!ledgerdata($SYNC->{$mask}{data},$SYNC->{$mask}{first})) {
+          prout " * Node $mask sent illegal ledger data";
+          killclient($node->{client},"Desynced on syncing");
+          $SYNC->{$mask}{ok}=0;
+          $SYNCPOS=-s "ledger$FCCEXT";
+          $FIRSTSYNC=1
+        } else {
+          $SYNCPOS+=$SYNC->{$mask}{length};
+          $SYNC->{$mask}{busy}=0;
+          $SYNC->{$mask}{pos}=0;
+          $SYNC->{$mask}{ok}=1;
+        }
+        $SYNC->{$mask}{ready}=0;
+        if ($SYNCPOS == $LEDGERWANTED) {
+          prout " * Finished syncing";
+          $LASTBLOCK=readlastblock(); $LEDGERLEN=$LASTBLOCK->{pos}+$LASTBLOCK->{next}+4;
+          $FCCINIT=16383; $SYNC={}; $SYNCBUF={};
+          save()
+        }
+      } else {
+        # memory buffer, limited to 128Mb (= 4096 blocks of 32Kb)
+        if ($SYNCSTORED < 4096) {
+          $SYNCBUF->{$SYNC->{$mask}{pos}}=$SYNC->{$mask}{data};
+          $SYNCSTORED++;
+          $SYNC->{$mask}{ready}=0;
+          $SYNC->{$mask}{busy}=0;
+          $SYNC->{$mask}{pos}=0;
+          $SYNC->{$mask}{ok}=1;
+        }
+      }
+    } elsif ($SYNC->{$mask}{busy}) {
+      $SYNC->{$mask}{ok}=1;
+      if ($tm - $SYNC->{$mask}{time} >= 3) {
+        $SYNC->{$mask}{ok}=0
+      }
+    }
+  }
+  foreach my $slot (keys %$SYNC) {
+    if (!$SYNC->{$slot}{ok}) { delete $SYNC->{$slot} }
   }
 }
 
@@ -1753,7 +1779,10 @@ sub c_ledgerresponse {
   my $node=$PARENTLIST->{$client->{mask}};
   $node->{ledgerlen}=$k->{size};
   $node->{lastcum}=$k->{cumhash};
-  $node->{blockheight}=$k->{height}
+  $node->{blockheight}=$k->{height};
+  if ($SYNC->{$client->{mask}}) {
+    $SYNC->{$client->{mask}}{busy}=0
+  }
 }
 
 sub c_reqledger {
@@ -1762,38 +1791,34 @@ sub c_reqledger {
   if ($k->{pos}+$k->{length}>$LEDGERLEN) {
     fault($client); return
   }
-  my $data=zb64(gfio::content("ledger$FCCEXT",$k->{pos},$k->{length}));
-  outjson($client,{ command => "ledgerdata", pos => $k->{pos}, data => $data, final => $k->{final} || 0, first => $k->{first} || 0 })
+  my $sz=-s "ledger$FCCEXT";
+  if ($sz<$k->{pos}+$k->{length}) {
+    outjson($client,{ command => 'ledgerdata', error => 'Cannot supply block', pos => $k->{pos}, data => "", final => $k->{final} || 0, first => $k->{first} || 0 })
+  } else {
+    my $data=zb64(gfio::content("ledger$FCCEXT",$k->{pos},$k->{length}));
+    outjson($client,{ command => "ledgerdata", pos => $k->{pos}, data => $data, final => $k->{final} || 0, first => $k->{first} || 0 })
+  }
 }
 
 sub c_ledgerdata {
   my ($client,$k) = @_;
+  if ($k->{error}) {
+    killclient($client,"Desynced ($k->{error})"); return
+  }
   $k->{data}=b64z($k->{data});
   if ($INFOMODE) {
     gfio::append("ledger.download$FCCEXT",$k->{data});
     $INFOREAD=0; $INFOPOS+=32768;
     return
   }
-  if (!$SYNCING) {
-    if (!ledgerdata($k->{data},$k->{first})) {
-      prout " *> Node $client->{ip}:$client->{port} sent illegal ledgerdata";
-      killclient($client,"Desynced")
-    }
-    $LASTBLOCK=readlastblock(); $LEDGERLEN=$LASTBLOCK->{pos}+$LASTBLOCK->{next}+4;
-    return
+  if ($SYNC->{$client->{mask}}) {
+    $SYNC->{$client->{mask}}{ready}=1;
+    $SYNC->{$client->{mask}}{data}=$k->{data};
+  } elsif (!ledgerdata($k->{data},$k->{first})) {
+    prout " *> Node $client->{ip}:$client->{port} sent illegal ledgerdata";
+    killclient($client,"Desynced")
   }
-  if ($SYNCBLOCKS->{$k->{pos}} && (length($k->{data}) == $SYNCBLOCKS->{$k->{pos}}{length})) {
-    my $node=$PARENTLIST->{$client->{mask}};
-    if (($node->{synclen} == $SYNCBLOCKS->{$k->{pos}}{length}) && ($node->{syncpos} == $k->{pos})) {
-      $SYNCBLOCKS->{$k->{pos}}{ready}=1;
-      $SYNCBLOCKS->{$k->{pos}}{data}=$k->{data};
-      $node->{sync}=0
-    } else {
-      fault($client)
-    }
-  } else {
-    fault($client)
-  }
+  $LASTBLOCK=readlastblock(); $LEDGERLEN=$LASTBLOCK->{pos}+$LASTBLOCK->{next}+4;
 }
 
 ##################### LEAF ##########################################
@@ -1852,7 +1877,11 @@ sub c_newtransaction {
       if ((ref($to) ne 'HASH') || (!validwallet($to->{wallet})) || (!$to->{amount}) || ($to->{amount} =~ /[^0-9]/)) {
         $error="Invalid spend-block in to-spend-list"; last
       } elsif ((!$to->{fee}) || ($to->{fee} =~ /[^0-9]/) || ($to->{fee}<$MINIMUMFEE)) {
-        $to->{fee}=$MINIMUMFEE
+        if (!checkgenesis($k->{pubkey})) {
+          $to->{fee}=$MINIMUMFEE
+        } else {
+          $to->{fee}=0
+        }
       }
       my $afee=doggyfee($to->{amount},$to->{fee});
       $amount+=$to->{amount}+$afee;
@@ -2261,8 +2290,7 @@ sub analysevotes {
         my @sch = sort { $lch->{$b} <=> $lch->{$a} } keys %$lch;
         if (($#sch>=0) && ($sch[0] ne $LASTBLOCK->{tcum})) {
           # Desynced !!!
-          unlink "ledger$FCCEXT";
-          killserver("Unfortunately the ledger is desynced. The ledger will be deleted. Please restart the node."); exit
+          killserver("Unfortunately the ledger is desynced. Maybe the ledger should be deleted. Please restart the node."); exit
         } else {
           my $dbl={};
           foreach my $rp (@rplist) {

@@ -15,7 +15,7 @@ use warnings;
 use Exporter;
 use vars qw($VERSION @ISA @EXPORT @EXPORT_OK);
 
-$VERSION     = '1.24';
+$VERSION     = '1.25';
 @ISA         = qw(Exporter);
 @EXPORT      = qw(version load save allowsave deref processledger collectspendblocks inblocklist saldo readblock readlastblock encodetransaction 
                   addtoledger ledgerdata createcoinbase createtransaction createfeetransaction calculatefee getdbhash getinblock sealinfo);
@@ -24,9 +24,9 @@ $VERSION     = '1.24';
 use Crypt::Ed25519;
 use gfio 1.10;
 use gerr;
-use FCC::global 1.28;
+use FCC::global 1.99;
 use FCC::wallet 2.12;
-use FCC::fccbase 1.02;
+use FCC::fccbase 1.03;
 
 my $SDB = []; # spendable outblocks in positions (non ordered quick search) => validate
 my $OBL = []; # outblocklist in positions (ordered slow search) => create transaction
@@ -35,8 +35,9 @@ my $LEDGERBUFFER = "";
 my $LEDGERSTACK = [];
 my $REPORTONLY = 0;
 my $LEDGERERROR = "";
-my $BLOCKSAVE = 0;
+my $PREVENTSAVE = 0;
 my $DBHASH = "";
+my $VPL = 0;
 
 1;
 
@@ -284,32 +285,34 @@ sub createfeetransaction {
 }
 
 sub allowsave {
-  $BLOCKSAVE=0
+  $PREVENTSAVE=0
 }
 
 sub save {
-  if ($BLOCKSAVE) { return }
+  if ($PREVENTSAVE) { return }
   my $last=readlastblock();
   if (-e "savepoint$FCCEXT") {
     my $data=gfio::content("savepoint$FCCEXT");
     my ($pos,$cumhash) = split(/ /,$data);
     if ($cumhash eq $last->{tcum}) { return }
   }
-  gfio::create("savepoint$FCCEXT",join(' ',$last->{pos},$last->{tcum},$DBHASH));
   savewalletlist();
   saveoutblocklist();
-  dbsave($SDB,"spenddb$FCCEXT")
+  dbsave($SDB,"spenddb$FCCEXT");
+  gfio::create("savepoint$FCCEXT",join(' ',$last->{pos},$last->{tcum},$DBHASH));
 }
 
 sub load {
-  if (!-e "ledger$FCCEXT") { killdb(); gfio::create("ledger$FCCEXT",''); return }  
+  if (!-e "ledger$FCCEXT") { killdb(); gfio::create("ledger$FCCEXT",''); return }
+  if (!checkdb()) { killdb() }
   my $lastblock=readlastblock(); my $pos=0; my $cumhash='init';
+  $VPL=1;
   if (-e "savepoint$FCCEXT") {
     my $data=gfio::content("savepoint$FCCEXT");
     ($pos,$cumhash,$DBHASH) = split(/ /,$data);
     if (!$DBHASH) {
       print "\r ** Creating Database Hash"; print " "x54; print "\n";
-      killdb(); $BLOCKSAVE=0; $DBHASH="";
+      killdb(); $DBHASH="";
       processledger(0,{ next => 0, num => -1, tid => '0'x64 })
     } else {
       loadwalletlist();
@@ -323,6 +326,7 @@ sub load {
   } else {
     processledger(0,{ next => 0, num => -1, tid => '0'x64 })
   }
+  $PREVENTSAVE=0; $VPL=0;
   save()
 }
 
@@ -350,7 +354,7 @@ sub addwallet {
     do {
       $jump>>=1;
       my $sp=$WDB->{$wid}[$bp-1];
-      if (!$sp || ($sp>$pos)) {
+      if (!defined $sp || ($sp>$pos)) {
         $bp-=$jump; $flag=1
       } else {
         $bp+=$jump; $flag=2
@@ -414,7 +418,9 @@ sub savewalletlist {
       $rawdata.=pack('N',$pos)
     }
   }
-  gfio::create("walletdb$FCCEXT",$rawdata)
+  if ($rawdata) {
+    gfio::create("walletdb$FCCEXT",$rawdata)
+  }
 }
 
 sub loadwalletlist {
@@ -443,7 +449,9 @@ sub saveoutblocklist {
     $rawdata.=pack('n',$pos>>32);
     $rawdata.=pack('N',$pos)
   }
-  gfio::create("outblocks$FCCEXT",$rawdata)
+  if ($rawdata) {
+    gfio::create("outblocks$FCCEXT",$rawdata)
+  }
 }
 
 sub loadoutblocklist {
@@ -460,7 +468,14 @@ sub killdb {
   foreach my $file ("savepoint$FCCEXT","spenddb$FCCEXT","outblocks$FCCEXT","walletdb$FCCEXT") {
     if (-e $file) { unlink $file }
   }
-  $BLOCKSAVE=1
+  $PREVENTSAVE=1
+}
+
+sub checkdb {
+  foreach my $file ("savepoint$FCCEXT","spenddb$FCCEXT","outblocks$FCCEXT","walletdb$FCCEXT") {
+    if (!-e $file) { return 0 }
+  }
+  return 1
 }
 
 sub truncateledger {
@@ -726,9 +741,17 @@ sub processledger {
   my $fh=gfio::open("ledger$FCCEXT");
   if (!$fh->{size}) { $fh->close; return }
   my $size=$fh->{size}-4; my $bi = { next => 0 }; my $bnr=0;
+  my $todo=$size-$pos; my $start=$pos; my $vplc=-1;
   my $md = { outtogo => 0, signdata => "", sign => "", pubkey => "", outamount => 0, outfee => 0, inamount => 0, inblocks => [] };
   while ($pos<$size) {
     # print " ** PROCESS $pos **\n";
+    if ($VPL) {
+      my $done=int (100*(($pos-$start)/$todo));
+      if ($done != $vplc) {
+        $vplc=$done;
+        print "\r * Verifying Ledger .. Processed $vplc %"
+      }
+    }
     $fh->seek($pos);
     $bi = { pos => $pos };
     if ($pos+4>$size) {
@@ -770,7 +793,10 @@ sub processledger {
     $fh->close;
     illegalblock($bi,$pbi,"Ledger has missing out blocks at the end")
   }
-  $fh->close
+  $fh->close;
+  if ($VPL) {
+    print "\r * Verifying Ledger .. Processed 100 %\n"
+  }
 }
 
 sub readblock {
@@ -844,8 +870,9 @@ sub readlastblock {
 sub lastledgerprev {
   my $fh=gfio::open("ledger$FCCEXT");  
   my $sz=$fh->filesize();
+  if (!$sz) { return "" }
   $fh->seek($sz-4);
-  my $pp=hexdec($fh->read(4));
+  my $pp=$fh->read(4);
   $fh->close;
   return $pp
 }
@@ -940,7 +967,8 @@ sub ledgerdata {
   # data can contain part of a block!
   my ($data,$init) = @_;
   if ($init && (-e "ledger$FCCEXT")) {
-    $LEDGERBUFFER=dechex(lastledgerprev(),4)
+    $LEDGERBUFFER=lastledgerprev();
+    $LEDGERSTACK=[]
   }
   $LEDGERBUFFER.=$data;
   while (length($LEDGERBUFFER)>=217) {

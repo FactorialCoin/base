@@ -15,7 +15,7 @@ use warnings;
 use Exporter;
 use vars qw($VERSION @ISA @EXPORT @EXPORT_OK);
 
-$VERSION     = '1.99';
+$VERSION     = '2.01';
 @ISA         = qw(Exporter);
 @EXPORT      = qw($COIN $HP setcoin $FCCVERSION $FCCBUILD $FCCEXT $FCCTIME $FCCMAGIC $FCCSERVERKEY $TRANSTYPES $RTRANSTYPES
                   $MINIMUMFEE $MINERPAYOUT $MINEBONUS $FCCSERVERIP $FCCSERVERPORT
@@ -64,7 +64,7 @@ sub setcoin {
     $FCCSERVERPORT = 9612;
     $FCCSERVERKEY = "1111145AFA4FBB1CF8D406A234C4CC361D797D9F8F561913D479DBC28C7A4F3E";
     $FCCEXT = '.pttp';
-    $FCCBUILD = '1.19';
+    $FCCBUILD = '2.21';
     $MINIMUMFEE = 110;
   } elsif ($COIN ne 'FCC') {
     die "Unknown coin '$_[0]'"
@@ -90,7 +90,9 @@ sub setfcctime {
 }
 
 sub fcctimestring {
-  my @t=localtime(time + $FCCTIME);
+  my ($time) =@_;
+  if (!$time) { $time=time + $FCCTIME }
+  my @t=localtime($time);
   my $tm=('Sun','Mon','Tue','Wed','Thu','Fri','Sat')[$t[6]]; $tm.=", ";
   my $yr=$t[5]+1900; my $mon=('Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec')[$t[4]];
   $tm.="$t[3] $mon $yr ";
