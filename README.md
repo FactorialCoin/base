@@ -13,15 +13,15 @@ You can earn FCC and/or PTTP by mining it or running a node in which case you wi
 
 <p>Windows Install Pack (perl included):
 <li>(FCC) https://factorialcoin.nl/download</li>
-<li>(PTTP) https://pttp.factorialcoin.nl//PTTP_0102_Windows.zip</li>
+<li>(PTTP) https://factorialcoin.nl/pttp/download</li>
 </p>
 <p>Linux Install Pack (perl included):
 <li>(FCC) https://factorialcoin.nl/download/linux</li>
-<li>(PTTP) https://pttp.factorialcoin.nl//PTTP_0102_Linux.tar.gz</li>
+<li>(PTTP) https://factorialcoin.nl/pttp/download/linux</li>
 </p>
 <p>Macintosh Install Pack (perl included):
 <li>(FCC) https://factorialcoin.nl/download/macintosh</li>
-<li>(PTTP) https://pttp.factorialcoin.nl//PTTP_0102_Macintosh.rar</li>
+<li>(PTTP) https://factorialcoin.nl/pttp/download/macintosh</li>
 </p>
 <hr>
 <p>GitHub Install:</p>
