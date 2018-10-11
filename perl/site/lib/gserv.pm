@@ -61,7 +61,7 @@ use HTTP::Date;
 use Exporter;
 use vars qw($VERSION @ISA @EXPORT @EXPORT_OK);
 
-$VERSION     = '4.3.1';
+$VERSION     = '4.3.2';
 @ISA         = qw(Exporter);
 @EXPORT      = qw(wsmessage);
 @EXPORT_OK   = qw(prtm localip init start wsmessage out burst takeloop broadcast wsbroadcast broadcastfunc httpresponse);
@@ -83,12 +83,12 @@ sub setssl {
 }
 
 sub init {
-  my ($clienthandle,$clientloop,$ssldomain) = @_;
+  my ($clienthandle,$clientloop,$ssldomain,$serverhandle) = @_;
   if (ref($clienthandle) ne 'CODE') {
     error "Eureka server could not initialize: No clienthandle given."
   }
   if ((defined $clientloop) && (ref($clientloop) ne 'CODE')) {
-    error "Eureka server could not initialize: No clientloop-handle given."
+    error "Eureka server could not initialize: Invalid clientloop-handle given."
   }
   my $self = {
     isserver => 1,
@@ -130,6 +130,7 @@ sub init {
     idletimeout => 0,                        # kills a client on X seconds of inactivity (0 = no timeout)
     clienthandle => $clienthandle,           # handle called whenever there is a client-method
     clientloop => $clientloop,               # handle called on every processing loop
+    serverhandle => $serverhandle,           # handle called on every processing loop
     activeclient => undef,                   # set when a process is in active handling to signal from outside
   };
   bless($self);
@@ -198,6 +199,10 @@ sub start {
 
   if ($self->{verbose}) {
     print STDOUT prtm(),"Server '$self->{name}' started on port $self->{server}{port}\n"
+  }
+  if ($self->{serverhandle}) {
+    my $func=$self->{serverhandle};
+    &$func('connected')
   }
   $self->{loopmode}=$autoloop;
   if ($autoloop) {
@@ -357,6 +362,10 @@ sub takeloop {
           if ($self->{verbose}) {
             print STDOUT prtm(),"JOIN $ip\:$port ($host)\n"
           }
+          if ($self->{serverhandle}) {
+            my $func=$self->{serverhandle};
+            &$func('connect',$cdata)
+          }
           my $func=$self->{clienthandle};
           &$func($cdata,'connect')
         }
@@ -425,6 +434,10 @@ sub deleteclient {
   if ($self->{verbose}) {
     # my $err=gerr::trace(); print "$err\n";
     print STDOUT prtm(),"QUIT $ip\:$port\n"
+  }
+  if ($self->{serverhandle}) {
+    my $func=$self->{serverhandle};
+    &$func('disconnect',$client)
   }
   my $func=$self->{clienthandle};
   &$func($client,'quit',$msg);

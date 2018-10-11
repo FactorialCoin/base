@@ -18,7 +18,7 @@ use gerr qw(error);
 use Exporter;
 use vars qw($VERSION @ISA @EXPORT @EXPORT_OK);
 
-$VERSION     = '2.1.1';
+$VERSION     = '2.1.2';
 @ISA         = qw(Exporter);
 @EXPORT      = ();
 @EXPORT_OK   = qw();

@@ -34,7 +34,7 @@ use Digest::SHA1 qw(sha1);
 use Gzip::Faster;
 use vars qw($VERSION @ISA @EXPORT @EXPORT_OK);
 
-$VERSION     = '7.7.2'; # clients are more difficult then servers, the kernel-version-numbers proof it! LIBERTA!
+$VERSION     = '7.7.3'; # clients are more difficult then servers, the kernel-version-numbers proof it! LIBERTA!
 @ISA         = qw(Exporter);
 @EXPORT      = ();
 @EXPORT_OK   = qw(openconnection in out websocket tcpip spliturl wsmsg wsquit wsinput localip website zipeval encode_base64 icecast2 icecast2_metadata);
@@ -816,43 +816,47 @@ sub icecast2 {
   my $tm=gettimeofday();
   while (!$client->{iquit}) {
     $client->takeloop();
-    &$caller($client,"icedelay");
-    my $tod=gettimeofday();
-    if ($tod-$tm>=0.1) {
-      $tm=$tod;
-      my $resp=&$caller($client,"iceloop");
-      if ($resp && ($resp eq 'quit')) {
-        $client->quit(); $client->{iquit}=1
-      }
-    }
-    if (!$client->{readheader}) {
-      if ($client->{getsong}) {
-        $client->{getsong}=0;
-        my ($song,$itv)=&$caller($client,'icesong');
-        if (!$song || !$itv) {
-          $client->{getsong}=1
-        } else {
-          $client->{itv}=$itv / 1000000; $client->{datatime}=0; $client->{bursttime}=$client->{itv}*30+$tod;
-          #icecast2_metadata($host,$port,$mount,$pass,$song)
+    if ($client->{iquit}) {
+      &$caller($client,'quit',$client->{error})
+    } else {
+      &$caller($client,"icedelay");
+      my $tod=gettimeofday();
+      if ($tod-$tm>=0.1) {
+        $tm=$tod;
+        my $resp=&$caller($client,"iceloop");
+        if ($resp && ($resp eq 'quit')) {
+          $client->quit(); $client->{iquit}=1
         }
-      } else {
-        if ($client->{iceburst}<=60) {
-          my $data=&$caller($client,'icedata');
-          if (length($data) == 0) {
+      }
+      if (!$client->{readheader}) {
+        if ($client->{getsong}) {
+          $client->{getsong}=0;
+          my ($song,$itv)=&$caller($client,'icesong');
+          if (!$song || !$itv) {
             $client->{getsong}=1
           } else {
-            $client->out($data);
-            $client->outburst();
+            $client->{itv}=$itv / 1000000; $client->{datatime}=0; $client->{bursttime}=$client->{itv}*30+$tod;
+            #icecast2_metadata($host,$port,$mount,$pass,$song)
           }
-          $client->{iceburst}++
-        } elsif ($tod >= $client->{bursttime}) {
-          $client->{bursttime}+=$client->{itv};
-          my $data=&$caller($client,'icedata');
-          if (length($data) == 0) {
-            $client->{getsong}=1
-          } else {
-            $client->out($data);
-            $client->outburst();
+        } else {
+          if ($client->{iceburst}<=60) {
+            my $data=&$caller($client,'icedata');
+            if (length($data) == 0) {
+              $client->{getsong}=1
+            } else {
+              $client->out($data);
+              $client->outburst();
+            }
+            $client->{iceburst}++
+          } elsif ($tod >= $client->{bursttime}) {
+            $client->{bursttime}+=$client->{itv};
+            my $data=&$caller($client,'icedata');
+            if (length($data) == 0) {
+              $client->{getsong}=1
+            } else {
+              $client->out($data);
+              $client->outburst();
+            }
           }
         }
       }
@@ -935,7 +939,7 @@ sub wsupgrade {
 
 sub wsinput {
   # RFC 6455
-  my ($self,$data) = @_;
+  my ($self,$data,$try) = @_;
   if (!$data) {
     $data=$self->in();
     if (defined $data) { $self->{ws}{buffer}.=$data }
@@ -990,7 +994,7 @@ sub wsinput {
     $self->{ws}{data}=""
   }
   $self->{ws}{buffer}=substr($self->{ws}{buffer},$offset+$len);
-  if (length($self->{ws}{buffer})) { $self->wsinput() }
+  if (length($self->{ws}{buffer}) && !$try) { $self->wsinput(undef,1) }
 }
 
 sub handlews {
