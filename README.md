@@ -38,8 +38,6 @@ Download the PTTP Wallet, Miner and/or Node Run and Installer Scripts from
 the PTTP https://github.com/FactorialCoin/PTTP repository
 <br>(zip) https://github.com/FactorialCoin/PTTP/archive/master.zip 
 
-Only the Installer containce the Wallet and Node start example scripts for all available Os's.
-
 <hr>
 
 May the FCC and PTTP take you down the rabbithole, say hello to Alice from me!
