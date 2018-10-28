@@ -11,7 +11,9 @@
   <li>WebSocket Support</li>
   <li>JSON Communcations</li>
   <h2>WebSocket Support</h2>
+  <p>All Communcations go over the WebSocket protocol.</p>
   <h2>JSON Communcations</h2>
+  <p>All Communcations are thru the JSON protocol.</p>
 </ul>
 
 
