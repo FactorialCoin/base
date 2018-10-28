@@ -12,6 +12,10 @@
   <li>JSON Communcations</li>
 </ul>
 
+<h2>WebSocket Support</h2>
+
+<h2>JSON Communcations</h2>
+
 
 <h1>Wallet Leaf Connection Protocol</h1>
 <ul>
