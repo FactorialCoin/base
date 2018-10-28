@@ -42,5 +42,13 @@
 <h1>Connected Wallet Leaf Commands</h1>
 <ul>
   <h2>Wallet Balance</h2>
+  <h3>out: command:balance</h3>
+  <ul>
+    <p><code>{"command":"balance","wallet":"[fcc-wallet-address]"}</code></p>
+  </ul>
+  <h3>in: command:balance</h3>
+  <ul>
+    <p><code>{"command":"balance","wallet":"[fcc-wallet-address]","balance":[fccamount]}</code></p>
+  </ul>
   <h2>Wallet Transaction</h2>
 </ul>
