@@ -30,11 +30,11 @@ To download the Domero Perl-Base from https://github.com/FactorialCoin/base/ rep
 <br>(zip) https://github.com/FactorialCoin/base/archive/master.zip 
 <br>put perl/site/lib into your Perl's /site/lib directory.
 
-Download the FCC Wallet, Miner and/or Node Run and Installer Scripts from
+To download the FCC Wallet, Miner and/or Node Run and Installer Scripts from
 the FCC https://github.com/FactorialCoin/FCC repository
 <br>(zip) https://github.com/FactorialCoin/FCC/archive/master.zip 
 
-Download the PTTP Wallet, Miner and/or Node Run and Installer Scripts from
+To download the PTTP Wallet, Miner and/or Node Run and Installer Scripts from
 the PTTP https://github.com/FactorialCoin/PTTP repository
 <br>(zip) https://github.com/FactorialCoin/PTTP/archive/master.zip 
 
