@@ -31,11 +31,11 @@
 <ul>
   <h2>Hello in</h2>
   <ul>
-    <p><code>{"command":"hello","host":"37.97.233.157","port":"7050","version":"0101"}</code></p>
+    <p><code>{"command":"hello","host":"[node-ip]","port":"[node-port]","version":"[fcc-version]"}</code></p>
   </ul>
   <h2>Identify out</h2>
   <ul>
-    <p><code>{"command":"identify","type":"leaf","version":"0101"}</code></p>
+    <p><code>{"command":"identify","type":"leaf","version":"[fcc-version]"}</code></p>
   </ul>
 </ul>
 
