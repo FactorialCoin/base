@@ -1,4 +1,4 @@
-# Wallet Leaf Api Documentaion
+# Wallet Leaf Api Documentation
 
 <ul>
   <li>Basic Framework</li>
