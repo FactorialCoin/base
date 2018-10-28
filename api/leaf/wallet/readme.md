@@ -30,7 +30,13 @@
 <h1>Wallet Leaf Connection Protocol</h1>
 <ul>
   <h2>Hello in</h2>
+  <ul>
+    <p><code>{"command":"hello","host":"37.97.233.157","port":"7050","version":"0101"}</code></p>
+  </ul>
   <h2>Identify out</h2>
+  <ul>
+    <p><code>{"command":"identify","type":"leaf","version":"0101"}</code></p>
+  </ul>
 </ul>
 
 <h1>Connected Wallet Leaf Commands</h1>
