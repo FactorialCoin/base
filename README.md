@@ -9,7 +9,7 @@ You can earn FCC and/or PTTP by mining it or running a node in which case you wi
 <p>PTTP Blockchain Explorer:<br><li>https://factorialcoin.nl:9613/</li></p>
 
 <hr>
-<p>Download Perl & FCC/PTTP Install:</p>
+<p>Download FCC/PTTP Install and Run Scripts:</p>
 
 <p>Windows Install Pack (perl included):
 <li>(FCC) https://factorialcoin.nl/download</li>
