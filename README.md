@@ -26,18 +26,18 @@ You can earn FCC and/or PTTP by mining it or running a node in which case you wi
 <hr>
 <p>GitHub Install:</p>
 
-To download the Domero Perl-Base
-from FactorialCoin Domero Perl-Base https://github.com/FactorialCoin/base/ repository 
-<br>(zip) https://github.com/FactorialCoin/base/archive/master.zip 
+To download the Domero Perl-Base from<br>
+the FactorialCoin Domero Perl-Base https://github.com/FactorialCoin/base/ repository:
+<li>(zip) https://github.com/FactorialCoin/base/archive/master.zip </li>
 <br>put perl/site/lib into your Perl's /site/lib directory.
 
-To download the FCC Wallet, Miner and/or Node Run and Installer Scripts from
-the FCC https://github.com/FactorialCoin/FCC repository
-<br>(zip) https://github.com/FactorialCoin/FCC/archive/master.zip 
+To download the FCC Wallet, Miner and/or Node Run and Installer Scripts from<br>
+the FCC https://github.com/FactorialCoin/FCC repository:
+<li>(zip) https://github.com/FactorialCoin/FCC/archive/master.zip </li>
 
-To download the PTTP Wallet, Miner and/or Node Run and Installer Scripts from
-the PTTP https://github.com/FactorialCoin/PTTP repository
-<br>(zip) https://github.com/FactorialCoin/PTTP/archive/master.zip 
+To download the PTTP Wallet, Miner and/or Node Run and Installer Scripts from<br>
+the PTTP https://github.com/FactorialCoin/PTTP repository:
+<li>(zip) https://github.com/FactorialCoin/PTTP/archive/master.zip </li>
 
 <hr>
 
