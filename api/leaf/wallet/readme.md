@@ -7,5 +7,12 @@
 </ul>
 
 <h1>Basic Framework</h1>
+<ul>
+  <li>WebSocket Support</li>
+  <li>JSON Communcations</li>
+</ul>
+
+
 <h1>Wallet Leaf Protocol</h1>
+
 <h1>Wallet Leaf Commands</h1>
