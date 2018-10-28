@@ -2,14 +2,24 @@
 
 <ul>
   <li>Basic Framework</li>
+  <ul>
+    <li>WebSocket Support</li>
+    <li>JSON Communcations</li>
+  </ul>
   <li>Wallet Leaf Connection Protocol</li>
+  <ul>
+    <li>Hello in</li>
+    <li>Identify out</li>
+  </ul>
   <li>Connected Wallet Leaf Commands</li>
+  <ul>
+    <li>Wallet Balance</li>
+    <li>Wallet Transaction</li>
+  </ul>
 </ul>
 
 <h1>Basic Framework</h1>
 <ul>
-  <li>WebSocket Support</li>
-  <li>JSON Communcations</li>
   <h2>WebSocket Support</h2>
   <p>All Communcations go over the WebSocket protocol.</p>
   <h2>JSON Communcations</h2>
@@ -19,12 +29,12 @@
 
 <h1>Wallet Leaf Connection Protocol</h1>
 <ul>
-  <li>Hello in</li>
-  <li>Identify out</li>
+  <h2>Hello in</h2>
+  <h2>Identify out</h2>
 </ul>
 
 <h1>Connected Wallet Leaf Commands</h1>
 <ul>
-  <li>Wallet Balance</li>
-  <li>Wallet Transaction</li>
+  <h2>Wallet Balance</h2>
+  <h2>Wallet Transaction</h2>
 </ul>
