@@ -13,7 +13,7 @@
   <h2>WebSocket Support</h2>
   <p>All Communcations go over the WebSocket protocol.</p>
   <h2>JSON Communcations</h2>
-  <p>All Communcations are thru the JSON protocol.</p>
+  <p>All Communcations are spoken with the JSON protocol.</p>
 </ul>
 
 
