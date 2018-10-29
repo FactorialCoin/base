@@ -71,6 +71,12 @@
     </ul>
     <h3>2. in < command:balance</h3>
     <ul>
+      <h4>a. when error occured</h4>
+      <p><pre><code>{
+  "command":"balance",
+  "error":"[error-message]"
+}</code></pre></p>
+      <h4>b. on success</h4>
       <p><pre><code>{
   "command":"balance",
   "wallet":"[fcc-wallet-address]",
