@@ -49,7 +49,9 @@
     <li>2. out > command:identify</li>
   </ul>
   <li>Connected Miner Leaf Commands</li>
-  <ul>..
+  <ul>
+    <li>1. out > command:mine</li>
+    <li>2. in < command:challenge</li>
   </ul>
 </ul>
 
@@ -205,5 +207,45 @@
 </ul>
 
 <h1>Connected Miner Leaf Commands</h1>
-<ul>..
+<ul>
+  <h2>1. out > command:mine</h2>
+  <ul>
+    <p><pre><code>{
+  "command":"mine"
+}</code></pre></p>
+  </ul>
+  <h2>2. in < command:mine</h2>
+  <ul>
+    <p><pre><code>{
+  "command":"mine",
+  "challenge":"[ANSWER]",
+  "coincount":[CBCOUNT],
+  "diff":[DIFF],
+  "length":[DFAC],
+  "hints":"[HINTSTR]",
+  "ehints":"[EHINTSTR]",
+  "reward":[MINERPAYOUT],
+  "time":[FCCTIME],
+  "lastsol":"[LASTSOL]"
+}</code></pre></p>
+  </ul>
+  <h2>3. out > command:solution</h2>
+  <ul>
+    <p><pre><code>{
+  "command":"solution",
+  "solhash":"[SOLUTION_HASH]",
+  "wallet":[wallet-address]
+}</code></pre></p>
+  </ul>
+  <h2>4. in < command:solution</h2>
+  <ul>
+    <h3>a. on error</h3>
+    <p><pre><code>{
+  "command":"solerr"
+}</code></pre></p>
+    <h3>b. on success</h3>
+    <p><pre><code>{
+  "command":"solution"
+}</code></pre></p>
+  </ul>
 </ul>
