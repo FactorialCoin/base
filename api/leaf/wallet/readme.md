@@ -8,13 +8,23 @@
   </ul>
   <li>Wallet Leaf Connection Protocol</li>
   <ul>
-    <li>Hello in</li>
-    <li>Identify out</li>
+    <li>1. in < command:hello</li>
+    <li>2. out > command:identify</li>
   </ul>
   <li>Connected Wallet Leaf Commands</li>
   <ul>
     <li>Wallet Balance</li>
+    <ul>
+      <li>1. out > command:balance</li>
+      <li>2. in < command:balance</li>
+    </ul>
     <li>Wallet Transaction</li>
+    <ul>
+      <li>1. out > command:transfer</li>
+      <li>2.a in < command:newtransaction</li>
+      <li>3. out > command:sign</li>
+      <li>4. in < command:sign</li>
+    </ul>
   </ul>
 </ul>
 
@@ -29,7 +39,7 @@
 
 <h1>Wallet Leaf Connection Protocol</h1>
 <ul>
-  <h2>in < command:hello</h2>
+  <h2>1. in < command:hello</h2>
   <ul>
     <p><pre><code>{
   "command":"hello",
@@ -38,7 +48,7 @@
   "version":"[fcc-version]"
 }</code></pre></p>
   </ul>
-  <h2>out > command:identify</h2>
+  <h2>2. out > command:identify</h2>
   <ul>
   <p><pre><code>{
   "command":"identify",
@@ -52,14 +62,14 @@
 <ul>
   <h2>Wallet Balance</h2>
   <ul>
-    <h3>out > command:balance</h3>
+    <h3>1. out > command:balance</h3>
     <ul>
       <p><pre><code>{
   "command":"balance",
   "wallet":"[fcc-wallet-address]"
 }</code></pre></p>
     </ul>
-    <h3>in < command:balance</h3>
+    <h3>2. in < command:balance</h3>
     <ul>
       <p><pre><code>{
   "command":"balance",
@@ -87,19 +97,46 @@
     </ul>
     <h3>2. in < command:newtransaction</h3>
     <ul>
+      <h4>a.</h4>
       <p><pre><code>{
-  command => 'newtransaction',
-  transid => [your-transaction-idnr],
-  sign => [transaction-ledger-data-to-sign],
-  fcctime => [fcctimestamp]
+  "command":"newtransaction",
+  "transid":[your-transaction-idnr],
+  "sign":"[transaction-ledger-data-to-sign]",
+  "fcctime":[fcctimestamp]
 }</code></pre></p>
+      <h4>b.</h4>
     </ul>
-    <h3>3. out > command:sign</h3>
+    <h3>3. out > command:signtransaction</h3>
     <ul>
       <p><pre><code>{
-  command => 'signtransaction',
-  transid => [your-transaction-idnr],
-  signature => [your-signature]
+  "command":'signtransaction',
+  "transid":[your-transaction-idnr],
+  "signature":[your-signature]
+}</code></pre></p>
+    </ul>
+    <h3>4. in < command:signtransaction</h3>
+    <ul>
+      <p><pre><code>{
+  "command":"signtransaction",
+  "transid":[your-transaction-idnr],
+  "transhash":"[node-transaction-id]",
+  "error":"[error-message]" (when error occured)
+}</code></pre></p>
+    </ul>
+    <h3>5. in < command:processed</h3>
+    <ul>
+      <h4>a. when error occured</h4>
+      <p><pre><code>{
+  "command":"processed",
+  "transhash":"[node-transaction-id]",
+  "error":"[error-message]" 
+}</code></pre></p>
+      <h4>b. on success</h4>
+      <p><pre><code>{
+  "command":"processed",
+  "transhash":"[node-transaction-id]",
+  "wallet":"[wallet-address]",
+  "status":"success"
 }</code></pre></p>
     </ul>
   </ul>
