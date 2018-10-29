@@ -139,7 +139,7 @@
       <p><pre><code>{
   "command":'signtransaction',
   "transid":[your-transaction-idnr],
-  "signature":[your-signature]
+  "signature":[your-transaction-ledger-data-signature]
 }</code></pre></p>
     </ul>
     <h3>4. in < command:signtransaction</h3>
