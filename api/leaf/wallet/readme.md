@@ -87,6 +87,7 @@
   sign=>[transaction-ledger-data-to-sign],
   fcctime=>[fcctimestamp]
 }</code></pre></p>
+    </ul>
     <h3>out > command:sign</h3>
     <ul>
       <p><pre><code>{
