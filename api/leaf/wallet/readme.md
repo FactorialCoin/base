@@ -70,7 +70,7 @@
   </ul>
   <h2>Wallet Transaction</h2>
   <ul>
-    <h3>out > command:transfer</h3>
+    <h3>1. out > command:transfer</h3>
     <ul>
       <p><pre><code>
 {
@@ -86,7 +86,7 @@
   ]
 }</code></pre></p>
     </ul>
-    <h3>in < command:newtranaction</h3>
+    <h3>2. in < command:newtransaction</h3>
     <ul>
       <p><pre><code>{
   command => 'newtransaction',
@@ -95,7 +95,7 @@
   fcctime => [fcctimestamp]
 }</code></pre></p>
     </ul>
-    <h3>out > command:sign</h3>
+    <h3>3. out > command:sign</h3>
     <ul>
       <p><pre><code>{
   command => 'signtransaction',
