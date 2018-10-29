@@ -31,11 +31,20 @@
 <ul>
   <h2>Hello in</h2>
   <ul>
-    <p><code>{"command":"hello","host":"[node-ip]","port":"[node-port]","version":"[fcc-version]"}</code></p>
+    <p><pre><code>{
+  "command":"hello",
+  "host":"[node-ip]",
+  "port":"[node-port]",
+  "version":"[fcc-version]"
+}</code></pre></p>
   </ul>
   <h2>Identify out</h2>
   <ul>
-    <p><code>{"command":"identify","type":"leaf","version":"[fcc-version]"}</code></p>
+  <p><pre><code>{
+  "command":"identify",
+  "type":"leaf",
+  "version":"[fcc-version]"
+}</code></pre></p>
   </ul>
 </ul>
 
@@ -45,18 +54,18 @@
   <ul>
     <h3>out > command:balance</h3>
     <ul>
-      <p><code><pre>{
+      <p><pre><code>{
   "command":"balance",
   "wallet":"[fcc-wallet-address]"
-}</pre></code></p>
+}</code></pre></p>
     </ul>
     <h3>in < command:balance</h3>
     <ul>
-      <p><code><pre>{
+      <p><pre><code>{
   "command":"balance",
   "wallet":"[fcc-wallet-address]",
   "balance":[fccamount]
-}</pre></code></p>
+}</code></pre></p>
     </ul>
   </ul>
   <h2>Wallet Transaction</h2>
