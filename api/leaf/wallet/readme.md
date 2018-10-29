@@ -72,20 +72,27 @@
   <ul>
     <h3>out > command:transfer</h3>
     <ul>
+      <p><pre><code>
+{
+  "command":'newtransaction',
+  "transid":[your-transaction-nr],
+  "pubkey":"[wallet-pubkey]",
+  "to":[
+    {
+      "wallet":"[wallet-address]",
+      "amount":[doggy],
+      "fee":[doggy]
+    }, ..
+  ]
+}</code></pre></p>
+    </ul>
+    <h3>in < command:newtranaction</h3>
+    <ul>
       <p><pre><code>{
   command => 'newtransaction',
   transid => [your-transaction-id],
-  pubkey => [wallet-pubkey],
-  to => [tolist]
-}</code></pre></p>
-    </ul>
-    <h3>in < command:sign</h3>
-    <ul>
-      <p><pre><code>{
-  command=>'newtransaction',
-  transid=>[your-transaction-id],
-  sign=>[transaction-ledger-data-to-sign],
-  fcctime=>[fcctimestamp]
+  sign => [transaction-ledger-data-to-sign],
+  fcctime => [fcctimestamp]
 }</code></pre></p>
     </ul>
     <h3>out > command:sign</h3>
