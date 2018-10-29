@@ -29,7 +29,7 @@
 
 <h1>Wallet Leaf Connection Protocol</h1>
 <ul>
-  <h2>Hello in</h2>
+  <h2>in < command:hello</h2>
   <ul>
     <p><pre><code>{
   "command":"hello",
@@ -38,7 +38,7 @@
   "version":"[fcc-version]"
 }</code></pre></p>
   </ul>
-  <h2>Identify out</h2>
+  <h2>out > command:identify</h2>
   <ul>
   <p><pre><code>{
   "command":"identify",
