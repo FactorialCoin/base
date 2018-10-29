@@ -70,7 +70,6 @@
   </ul>
   <h2>Wallet Transaction</h2>
   <ul>
-  
     <h3>out > command:transfer</h3>
     <ul>
       <p><pre><code>{
@@ -80,7 +79,6 @@
   to => [tolist]
 }</code></pre></p>
     </ul>
-    
     <h3>in < command:sign</h3>
     <ul>
       <p><pre><code>{
@@ -89,7 +87,6 @@
   sign=>[transaction-ledger-data-to-sign],
   fcctime=>[fcctimestamp]
 }</code></pre></p>
-  
     <h3>out > command:sign</h3>
     <ul>
       <p><pre><code>{
@@ -98,6 +95,5 @@
   signature => [your-signature]
 }</code></pre></p>
     </ul>
-    
   </ul>
 </ul>
