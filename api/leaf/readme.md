@@ -6,12 +6,12 @@
     <li>WebSocket Support</li>
     <li>JSON Communcations</li>
   </ul>
-  <li>Wallet Leaf Connection Protocol</li>
+  <li>Wallet-Leaf Connection Protocol</li>
   <ul>
     <li>1. in < command:hello</li>
     <li>2. out > command:identify</li>
   </ul>
-  <li>Connected Wallet Leaf Commands</li>
+  <li>Connected Wallet-Leaf Commands</li>
   <ul>
     <li>Wallet Balance</li>
     <ul>
@@ -43,12 +43,12 @@
       </ul>
     </ul>
   </ul>
-  <li>Miner Leaf Connection Protocol</li>
+  <li>Miner-Leaf Connection Protocol</li>
   <ul>
     <li>1. in < command:hello</li>
     <li>2. out > command:identify</li>
   </ul>
-  <li>Connected Miner Leaf Commands</li>
+  <li>Connected Miner-Leaf Commands</li>
   <ul>
     <li>1. out > command:mine</li>
     <li>2. in < command:challenge</li>
@@ -58,12 +58,14 @@
 <h1>Basic Framework</h1>
 <ul>
   <h2>WebSocket Support</h2>
-  <p>All Communcations go over the WebSocket protocol.</p>
+  <p>All Communcations go over the WebSocket protocol. 
+    <i>(*Except for the nodelist collection thru https)</i>
+  </p>
   <h2>JSON Communcations</h2>
   <p>All Communcations are spoken with the JSON protocol.</p>
 </ul>
 
-<h1>Wallet Leaf Connection Protocol</h1>
+<h1>Wallet-Leaf Connection Protocol</h1>
 <ul>
   <h2>1. in < command:hello</h2>
   <ul>
@@ -84,7 +86,7 @@
   </ul>
 </ul>
 
-<h1>Connected Wallet Leaf Commands</h1>
+<h1>Connected Wallet-Leaf Commands</h1>
 <ul>
   <h2>Wallet Balance</h2>
   <ul>
@@ -185,7 +187,7 @@
   </ul>
 </ul>
 
-<h1>Miner Leaf Connection Protocol</h1>
+<h1>Miner-Leaf Connection Protocol</h1>
 <ul>
   <h2>1. in < command:hello</h2>
   <ul>
@@ -206,7 +208,7 @@
   </ul>
 </ul>
 
-<h1>Connected Miner Leaf Commands</h1>
+<h1>Connected Miner-Leaf Commands</h1>
 <ul>
   <h2>1. out > command:mine</h2>
   <ul>
