@@ -45,11 +45,18 @@
   <ul>
     <h3>out > command:balance</h3>
     <ul>
-      <p><code>{"command":"balance","wallet":"[fcc-wallet-address]"}</code></p>
+      <p><code><pre>{
+  "command":"balance",
+  "wallet":"[fcc-wallet-address]"
+}</pre></code></p>
     </ul>
     <h3>in < command:balance</h3>
     <ul>
-      <p><code>{"command":"balance","wallet":"[fcc-wallet-address]","balance":[fccamount]}</code></p>
+      <p><code><pre>{
+  "command":"balance",
+  "wallet":"[fcc-wallet-address]",
+  "balance":[fccamount]
+}</pre></code></p>
     </ul>
   </ul>
   <h2>Wallet Transaction</h2>
