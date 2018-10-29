@@ -97,14 +97,19 @@
     </ul>
     <h3>2. in < command:newtransaction</h3>
     <ul>
-      <h4>a.</h4>
+      <h4>a. when error occured</h4>
+      <p><pre><code>{
+  "command":"newtransaction",
+  "transid":[your-transaction-idnr],
+  "error":"[error-message]"
+}</code></pre></p>
+      <h4>b. on success</h4>
       <p><pre><code>{
   "command":"newtransaction",
   "transid":[your-transaction-idnr],
   "sign":"[transaction-ledger-data-to-sign]",
   "fcctime":[fcctimestamp]
 }</code></pre></p>
-      <h4>b.</h4>
     </ul>
     <h3>3. out > command:signtransaction</h3>
     <ul>
