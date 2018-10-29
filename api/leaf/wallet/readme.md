@@ -121,11 +121,17 @@
     </ul>
     <h3>4. in < command:signtransaction</h3>
     <ul>
+      <h4>a. when error occured</h4>
       <p><pre><code>{
   "command":"signtransaction",
   "transid":[your-transaction-idnr],
-  "transhash":"[node-transaction-id]",
-  "error":"[error-message]" (when error occured)
+  "error":"[error-message]"
+}</code></pre></p>
+      <h4>b. on success</h4>
+      <p><pre><code>{
+  "command":"signtransaction",
+  "transid":[your-transaction-idnr],
+  "transhash":"[node-transaction-id]"
 }</code></pre></p>
     </ul>
     <h3>5. in < command:processed</h3>
