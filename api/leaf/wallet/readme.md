@@ -72,8 +72,7 @@
   <ul>
     <h3>1. out > command:transfer</h3>
     <ul>
-      <p><pre><code>
-{
+      <p><pre><code>{
   "command":'newtransaction',
   "transid":[your-transaction-idnr],
   "pubkey":"[wallet-pubkey]",
