@@ -75,7 +75,7 @@
       <p><pre><code>
 {
   "command":'newtransaction',
-  "transid":[your-transaction-nr],
+  "transid":[your-transaction-idnr],
   "pubkey":"[wallet-pubkey]",
   "to":[
     {
@@ -90,7 +90,7 @@
     <ul>
       <p><pre><code>{
   command => 'newtransaction',
-  transid => [your-transaction-id],
+  transid => [your-transaction-idnr],
   sign => [transaction-ledger-data-to-sign],
   fcctime => [fcctimestamp]
 }</code></pre></p>
@@ -99,7 +99,7 @@
     <ul>
       <p><pre><code>{
   command => 'signtransaction',
-  transid => [your-transaction-id],
+  transid => [your-transaction-idnr],
   signature => [your-signature]
 }</code></pre></p>
     </ul>
