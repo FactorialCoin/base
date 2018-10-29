@@ -1,4 +1,4 @@
-# Wallet Leaf Api Documentation
+# Leaf Api Documentation
 
 <ul>
   <li>Basic Framework</li>
@@ -43,6 +43,14 @@
       </ul>
     </ul>
   </ul>
+  <li>Miner Leaf Connection Protocol</li>
+  <ul>
+    <li>1. in < command:hello</li>
+    <li>2. out > command:identify</li>
+  </ul>
+  <li>Connected Miner Leaf Commands</li>
+  <ul>..
+  </ul>
 </ul>
 
 <h1>Basic Framework</h1>
@@ -52,7 +60,6 @@
   <h2>JSON Communcations</h2>
   <p>All Communcations are spoken with the JSON protocol.</p>
 </ul>
-
 
 <h1>Wallet Leaf Connection Protocol</h1>
 <ul>
@@ -174,4 +181,29 @@
 }</code></pre></p>
     </ul>
   </ul>
+</ul>
+
+<h1>Miner Leaf Connection Protocol</h1>
+<ul>
+  <h2>1. in < command:hello</h2>
+  <ul>
+    <p><pre><code>{
+  "command":"hello",
+  "host":"[node-ip]",
+  "port":"[node-port]",
+  "version":"[fcc-version]"
+}</code></pre></p>
+  </ul>
+  <h2>2. out > command:identify</h2>
+  <ul>
+  <p><pre><code>{
+  "command":"identify",
+  "type":"miner",
+  "version":"[fcc-version]"
+}</code></pre></p>
+  </ul>
+</ul>
+
+<h1>Connected Miner Leaf Commands</h1>
+<ul>..
 </ul>
