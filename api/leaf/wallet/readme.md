@@ -17,13 +17,30 @@
     <ul>
       <li>1. out > command:balance</li>
       <li>2. in < command:balance</li>
+      <ul>
+        <li>a. when error occured</li>
+        <li>b. on success</li>
+      </ul>
     </ul>
     <li>Wallet Transaction</li>
     <ul>
       <li>1. out > command:transfer</li>
-      <li>2.a in < command:newtransaction</li>
-      <li>3. out > command:sign</li>
-      <li>4. in < command:sign</li>
+      <li>2. in < command:newtransaction</li>
+      <ul>
+        <li>a. when error occured</li>
+        <li>b. on success</li>
+      </ul>
+      <li>3. out > command:signtransaction</li>
+      <li>4. in < command:signtransaction</li>
+      <ul>
+        <li>a. when error occured</li>
+        <li>b. on success</li>
+      </ul>
+      <li>5. in < command:processed</li>
+      <ul>
+        <li>a. when error occured</li>
+        <li>b. on success</li>
+      </ul>
     </ul>
   </ul>
 </ul>
