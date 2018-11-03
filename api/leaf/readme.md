@@ -6,6 +6,10 @@
     <li>WebSocket Support</li>
     <li>JSON Communcations</li>
   </ul>
+  <li>New Wallet</li>
+  <ul>
+    <li>0. http-get wallet</li>
+  </ul>
   <li>Wallet-Leaf Connection Protocol</li>
   <ul>
     <li>0. http-get Nodelist</li>
@@ -46,6 +50,7 @@
   </ul>
   <li>Miner-Leaf Connection Protocol</li>
   <ul>
+    <li>0. http-get Nodelist</li>
     <li>1. in < command:hello</li>
     <li>2. out > command:identify</li>
   </ul>
@@ -66,6 +71,36 @@
   <p>All Communcations are spoken with the JSON protocol.</p>
 </ul>
 
+<h1>New Wallet</h1>
+<ul>
+  <h2>0. http-get Wallet</h2>
+  <ul>
+    <p><pre><code>https://factorialcoin.nl:5151/?wallet</code></pre></p>
+    <p>returns : <pre><code>{
+  "encryted":0,
+  "wlist":[
+    {
+      "name":"[ No name ]",
+      "wallet":"[FCC-WALLET-ADDRESS]",
+      "pubkey":"[PUBLIC-KEY]",
+      "privkey":"[PRIVATE-KEY]"
+    }
+  ]
+}</code></pre></p>
+    <p><pre><code>https://factorialcoin.nl:9612/?wallet</code></pre></p>
+    <p>returns : <pre><code>{
+  "encryted":0,
+  "wlist":[
+    {
+      "name":"[ No name ]",
+      "wallet":"[PTTP-WALLET-ADDRESS]",
+      "pubkey":"[PUBLIC-KEY]",
+      "privkey":"[PRIVATE-KEY]"
+    }
+  ]
+}</code></pre></p>
+  </ul>
+</ul>
 <h1>Wallet-Leaf Connection Protocol</h1>
 <ul>
   <h2>0. http-get Nodelist</h2>
@@ -195,6 +230,11 @@
 
 <h1>Miner-Leaf Connection Protocol</h1>
 <ul>
+  <h2>0. http-get Nodelist</h2>
+  <ul>
+    <p><pre><code>https://factorialcoin.nl:5151/?nodelist</code></pre></p>
+    <p><pre>returns : <code>[node-ip]:[node-port][space][...]</code></pre></p>
+  </ul>
   <h2>1. in < command:hello</h2>
   <ul>
     <p><pre><code>{
