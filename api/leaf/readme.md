@@ -207,10 +207,10 @@
       <p><pre><code>
 [your-transaction-ledger-data-signature] =
   octhex(
-    Crypt::Ed25519::sign(
+    Crypt::Ed25519::sign (
       [transaction-ledger-data-to-sign],
-      hexoct([wallet_pubkey]),
-      hexoct([wallet_privkey])
+      hexoct ( [your-wallet-public-key] ),
+      hexoct ( [your-wallet-private-key] )
     )
   );
       </code></pre></p>
