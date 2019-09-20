@@ -81,7 +81,7 @@
 <ul>
   <h2>0. http-get Wallet</h2>
   <ul>
-    <p><pre><code>https://factorialcoin.nl:5151/?wallet</code></pre></p>
+    <p><a href="https://factorialcoin.nl:5151/?wallet" target="_blank"><pre><code>https://factorialcoin.nl:5151/?wallet</code></pre></a></p>
     <p>returns : <pre><code>{
   "encryted":0,
   "wlist":[
@@ -93,7 +93,7 @@
     }
   ]
 }</code></pre></p>
-    <p><pre><code>https://factorialcoin.nl:9612/?wallet</code></pre></p>
+    <p><a href="https://factorialcoin.nl:9612/?wallet" target="_blank"><pre><code>https://factorialcoin.nl:9612/?wallet</code></pre></a></p>
     <p>returns : <pre><code>{
   "encryted":0,
   "wlist":[
