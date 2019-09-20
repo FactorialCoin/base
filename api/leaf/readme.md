@@ -213,12 +213,11 @@
       hexoct ( [your-wallet-private-key] )
     )
   );
-  
-* <strong>octhex</strong> translates binary data into hexadecimal data
-* <strong>hexoct</strong> translates hexadecimal data into binary data
-* <strong>Crypt::Ed25519::sign</strong> signs your data with your private and public keys
-  
-      </code></pre></p>
+</code></pre>
+        * <strong>octhex</strong> translates binary data into hexadecimal data
+        * <strong>hexoct</strong> translates hexadecimal data into binary data
+        * <strong>Crypt::Ed25519::sign</strong> signs your data with your private and public keys
+      </p>
     </ul>
     <h3>4. in < command:signtransaction</h3>
     <ul>
