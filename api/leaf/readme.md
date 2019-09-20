@@ -206,13 +206,18 @@
       <h4>a. formulating the signature in [Perl Code]</h4>
       <p><pre><code>
 [your-transaction-ledger-data-signature] =
-  octhex(
+  octhex (
     Crypt::Ed25519::sign (
       [transaction-ledger-data-to-sign],
       hexoct ( [your-wallet-public-key] ),
       hexoct ( [your-wallet-private-key] )
     )
   );
+  
+* <strong>octhex</strong> translates binary data into hexadecimal data
+* <strong>hexoct</strong> translates hexadecimal data into binary data
+* <strong>Crypt::Ed25519::sign</strong> signs your data with your private and public keys
+  
       </code></pre></p>
     </ul>
     <h3>4. in < command:signtransaction</h3>
