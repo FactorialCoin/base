@@ -116,7 +116,7 @@
     <p><a href="https://factorialcoin.nl:9612/?nodelist" target="_blank"><pre><code>https://factorialcoin.nl:9612/?nodelist</code></pre></a></p>
     <p><pre>returns PTTP Nodelist : <code>[node-ip]:[node-port][space][...]</code></pre></p>
   </ul>
-  *** After setting up your WebSocket Connection to the node ... the node will react with ***
+  <p><i><strong>*** After setting up your WebSocket Connection to the node ... the node will react with JSON commands ***</strong></i></p>
   <h2>1. in < command:hello</h2>
   <ul>
     <p><pre><code>{
