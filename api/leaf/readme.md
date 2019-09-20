@@ -196,9 +196,8 @@
   "transid":[your-transaction-idnr],
   "signature":[your-transaction-ledger-data-signature]
 }</code></pre></p>
-      <h4>a. formulating the signature</h4>
+      <h4>a. formulating the signature in [Perl Code]</h4>
       <p><pre><code>
-[PerlCode]
 [your-transaction-ledger-data-signature] =
   octhex(
     Crypt::Ed25519::sign(
@@ -207,7 +206,6 @@
       hexoct([wallet_privkey])
     )
   );
-[/PerlCode]
       </code></pre></p>
     </ul>
     <h3>4. in < command:signtransaction</h3>
