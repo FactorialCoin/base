@@ -111,7 +111,9 @@
 <ul>
   <h2>0. http-get Nodelist</h2>
   <ul>
-    <p><pre><code>https://factorialcoin.nl:5151/?nodelist</code></pre></p>
+    <p><a href="https://factorialcoin.nl:5151/?nodelist" target="_blank"><pre><code>https://factorialcoin.nl:5151/?nodelist</code></pre></a></p>
+    <p><pre>returns : <code>[node-ip]:[node-port][space][...]</code></pre></p>
+    <p><a href="https://factorialcoin.nl:9612/?nodelist" target="_blank"><pre><code>https://factorialcoin.nl:9612/?nodelist</code></pre></a></p>
     <p><pre>returns : <code>[node-ip]:[node-port][space][...]</code></pre></p>
   </ul>
   <h2>1. in < command:hello</h2>
