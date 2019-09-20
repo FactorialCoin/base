@@ -5,6 +5,7 @@
   <ul>
     <li>WebSocket Support</li>
     <li>JSON Communcations</li>
+    <li>Ed25519 Encryption</li>
   </ul>
   <li>New Wallet</li>
   <ul>
@@ -72,6 +73,8 @@
   </p>
   <h2>JSON Communcations</h2>
   <p>All Communcations are spoken with the JSON protocol.</p>
+  <h2>Ed25519 Encryption</h2>
+  <p>All Encryption needed is the Ed25519 Sign Function for Signatures with your Wallets Public and Private Keys.</p>
 </ul>
 
 <h1>New Wallet</h1>
