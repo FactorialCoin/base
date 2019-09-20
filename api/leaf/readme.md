@@ -199,13 +199,14 @@
       <h4>a. formulating the signature</h4>
       <p><pre><code>
 [PerlCode]
-$data->{signature}=octhex(
-  Crypt::Ed25519::sign(
-    $data->{data},
-    hexoct(coin_wallet_pubkey($client)),
-    hexoct(coin_wallet_privkey($client))
-  )
-);
+[your-transaction-ledger-data-signature] =
+  octhex(
+    Crypt::Ed25519::sign(
+      [transaction-ledger-data-to-sign],
+      hexoct([wallet_pubkey]),
+      hexoct([wallet_privkey])
+    )
+  );
 [/PerlCode]
       </code></pre></p>
     </ul>
