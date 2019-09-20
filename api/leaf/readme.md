@@ -36,6 +36,9 @@
         <li>b. on success</li>
       </ul>
       <li>3. out > command:signtransaction</li>
+      <ul>
+        <li>a. formulating the signature</li>
+      </ul>
       <li>4. in < command:signtransaction</li>
       <ul>
         <li>a. when error occured</li>
@@ -193,6 +196,18 @@
   "transid":[your-transaction-idnr],
   "signature":[your-transaction-ledger-data-signature]
 }</code></pre></p>
+      <h4>a. formulating the signature</h4>
+      <p><pre><code>
+[PerlCode]
+$data->{signature}=octhex(
+  Crypt::Ed25519::sign(
+    $data->{data},
+    hexoct(coin_wallet_pubkey($client)),
+    hexoct(coin_wallet_privkey($client))
+  )
+);
+[/PerlCode]
+      </code></pre></p>
     </ul>
     <h3>4. in < command:signtransaction</h3>
     <ul>
