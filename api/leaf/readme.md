@@ -65,6 +65,8 @@
   </ul>
 </ul>
 
+<hr>
+
 <h1>Basic Framework</h1>
 <ul>
   <h2>WebSocket Support</h2>
@@ -76,6 +78,8 @@
   <h2>Ed25519 Encryption</h2>
   <p>All Encryption needed is the Ed25519 Sign Function for Signatures with your Wallets Public and Private Keys.</p>
 </ul>
+
+<hr>
 
 <h1>New Wallet</h1>
 <ul>
@@ -107,6 +111,9 @@
 }</code></pre></p>
   </ul>
 </ul>
+
+<hr>
+
 <h1>Wallet-Leaf Connection Protocol</h1>
 <ul>
   <h2>0. http-get Nodelist</h2>
@@ -253,6 +260,8 @@
   </ul>
 </ul>
 
+<hr>
+
 <h1>Miner-Leaf Connection Protocol</h1>
 <ul>
   <h2>0. http-get Nodelist</h2>
@@ -326,3 +335,5 @@
 }</code></pre></p>
   </ul>
 </ul>
+
+<hr>
