@@ -5,14 +5,54 @@ package gclient;
 ######################################################################
 #                                                                    #
 #          TCP/IP client                                             #
-#           - websockets, telnet, http, raw, IceCast                 #
+#           - raw, telnet, HTTP/1.1, WebSockets, IceCast2            #
 #           - SSL support                                            #
 #           - fully bidirectional non-blocking, all systems          #
 #           - http reader supports chunked, gzip, auto redirect      #
 #           - RSS compatible                                         #
 #                                                                    #
-#          (C) 2018 Chaosje, Domero                                  #
+#          (C) 2019 Chaosje, Domero                                  #
 #          ALL RIGHTS RESERVED                                       #
+#                                                                    #
+######################################################################
+
+############## Caller Events #########################################
+#                                                                    #
+#  command    data                                                   #
+#  ---------- ------------------------------------------------------ #
+#  error      error message                                          #
+#  init       called before connect, init variables                  #
+#  connect    connection established, you may read and write now     #
+#  input      raw byte input received                                #
+#  noinput    no input received after read attempt                   #
+#  loop       called in every takeloop if loopmode==1 (master mode)  #
+#  quit       connection lost                                        #
+#                                                                    #
+###### HTTP/1.1 ######################################################
+#  connected  connection time                                        #
+#  request    require request method                                 #
+#  header     require header information                             #
+#  auth       require authorization information                      #
+#  post       set post data                                          #
+#  inform     information about server returns                       #
+#  reconnect  client has quit, new handle is the parameter           #
+#  ready      headers & website has been read                        #
+#                                                                    #
+###### TELNET ########################################################
+#                                                                    #
+###### ICECAST 2 #####################################################
+#  icemount   mounting info required                                 #
+#  icedelay   called every 100msec                                   #
+#  icesong    new song info required (for metadata)                  #
+#  icedata    new data required                                      #
+#                                                                    #
+######################################################################
+#  N.B. To signal if a socket connection has established,            #
+#       use connectcallback, this to not break a server that has a   #
+#       client in its loop.                                          #
+#                                                                    #
+#       When loopmode==0, call $clienthandle->takeloop() as part of  #
+#       your own main-loop.                                          #
 #                                                                    #
 ######################################################################
 
@@ -27,19 +67,22 @@ use IO::Select;
 use IO::Socket;
 use IO::Socket::INET;
 use IO::Socket::SSL;
+use Digest::SHA qw(sha256_hex);
 use URL::Encode qw(url_encode_utf8);
+use MIME::QuotedPrint;
 use Exporter;
 use Time::HiRes qw(gettimeofday usleep);
 use Digest::SHA1 qw(sha1);
-use Gzip::Faster;
+use Compress::Raw::Zlib;
+use Compress::Bzip2;
 use vars qw($VERSION @ISA @EXPORT @EXPORT_OK);
 
-$VERSION     = '7.7.3'; # clients are more difficult then servers, the kernel-version-numbers proof it! LIBERTA!
+$VERSION     = '8.1.2';
 @ISA         = qw(Exporter);
-@EXPORT      = ();
-@EXPORT_OK   = qw(openconnection in out websocket tcpip spliturl wsmsg wsquit wsinput localip website zipeval encode_base64 icecast2 icecast2_metadata);
+@EXPORT      = qw(out websocket tcpip http wsmsg wsquit wsinput localip telnet website icecast2 icecast2_metadata);
+@EXPORT_OK   = qw(openconnection in spliturl encode_base64);
 
-my $ZIPEVAL=0;
+my $TELNET=telnet_init();
 
 1;
 
@@ -61,8 +104,13 @@ sub openconnection {
   $self->{upgradebuf}="";
   $self->{upgradetime}=0;
   $self->{connected}=0;
+  $self->{connecttime}=0;
   $self->{loopmode}=0;
+  $self->{protocol}="";
   $self->{websocket}=0;
+  $self->{telnet}=0;
+  $self->{http}=0;
+  $self->{icecast}=0;
   $self->{error}="";
   $self->{quit}=0;
   $self->{caller}=\&dummycaller;
@@ -78,7 +126,7 @@ sub openconnection {
   $self->{connectlooptime}=0.01,
   $self->{waitforinput}=1;
   $self->{connectcallback}=$connectcallback;
-  $self->{connected}=gettimeofday();
+  $self->{lastconnect}=gettimeofday();
 
   # Connect to server
   my $proto = (getprotobyname('tcp'))[2];
@@ -164,14 +212,16 @@ sub connectready {
   select(undef, $self->{servervec}, undef, $self->{connectlooptime});
   if (vec($self->{servervec}, fileno($sock), 1)) {
     $self->{waitforinput}=0;
-    my $tm=gettimeofday()-$self->{connected};
+    $self->{connecttime}=gettimeofday();
+    my $tm=$self->{connecttime}-$self->{lastconnect};
     $self->{connectspeed}=$tm;
+    $self->{connected}=1;
     if ($self->{connectcallback}) {
       my $callback=$self->{connectcallback};
       &$callback($self,$tm)
     }
   } elsif ($self->{connected}) {
-    my $tm=gettimeofday()-$self->{connected};
+    my $tm=gettimeofday()-$self->{lastconnect};
     if ($tm>$self->{timeout}) {
       $self->{error}="Could not establish connection to server [$self->{host}:$self->{port}]";
       $self->quit;
@@ -208,7 +258,7 @@ sub canwrite {
 }
 
 sub readsocket {
-  my ($self) = @_;
+  my ($self,$func) = @_;
   if ($self->{quit}) { return }
   if ($self->{waitforinput}) {
     $self->connectready;    
@@ -256,8 +306,8 @@ sub readsocket {
       } elsif ($self->{dataready} && length($self->{curline})) {
         push @{$self->{buffer}},$self->{curline};
         $self->{curline}="";
-      } else {
-       # &$caller($self,'noinput')
+      } elsif (!$func) {
+        &$caller($self,'noinput')
       }
     } else {
       if ($self->{debug}) { print STDOUT "[INPUT] '$buf' " }
@@ -295,9 +345,9 @@ sub readsocket {
 }
 
 sub in {
-  my ($self) = @_;
+  my ($self,$func) = @_;
   if ($self->{quit}) { return }
-  $self->readsocket;
+  $self->readsocket($func);
   if (!$self->{dataready}) { return undef }
   if (!$self->{linemode}) {
     my $dat=$self->{curline};
@@ -359,32 +409,34 @@ sub outloop {
     &$caller($self,'error',"Socket disconnected");
     $self->{error}="Socket disconnected"; $self->quit; return
   }
-  if ($self->{linemode}) {
-    my $data=shift @{$self->{outputlines}};
-    $data.="\r\n";
-    if ($self->{ssl}) {
-      syswrite($sock,$data,length($data))
+  if ($self->canwrite) {
+    if ($self->{linemode}) {
+      my $data=shift @{$self->{outputlines}};
+      $data.="\r\n";
+      if ($self->{ssl}) {
+        syswrite($sock,$data,length($data))
+      } else {
+        send($sock,$data,0);
+      }
+      if ($#{$self->{outputlines}}<0) {
+        $self->{output}=0
+      }
+    } elsif ($self->{outputpointer}<$self->{outputlength}) {
+      if ($self->{outputlength}-$self->{outputpointer}<$sz) { $sz=$self->{outputlength}-$self->{outputpointer} }
+      my $data=substr($self->{outputbuffer},$self->{outputpointer},$sz);
+      # print " >> $self->{host} $sz\n";
+      if ($self->{ssl}) {
+        syswrite($sock,$data,length($data))
+      } else {
+        send($sock,$data,0);      
+      }
+      $self->{outputpointer}+=$sz;
+      if ($self->{outputlength}<=$self->{outputpointer}) {
+        $self->{output}=0
+      }
     } else {
-      send($sock,$data,0);
-    }
-    if ($#{$self->{outputlines}}<0) {
       $self->{output}=0
     }
-  } elsif ($self->{outputpointer}<$self->{outputlength}) {
-    if ($self->{outputlength}-$self->{outputpointer}<$sz) { $sz=$self->{outputlength}-$self->{outputpointer} }
-    my $data=substr($self->{outputbuffer},$self->{outputpointer},$sz);
-    # print " >> $self->{host} $sz\n";
-    if ($self->{ssl}) {
-      syswrite($sock,$data,length($data))
-    } else {
-      send($sock,$data,0);      
-    }
-    $self->{outputpointer}+=$sz;
-    if ($self->{outputlength}<=$self->{outputpointer}) {
-      $self->{output}=0
-    }
-  } else {
-    $self->{output}=0
   }
 }
 
@@ -409,7 +461,7 @@ sub takeloop {
   if ($self->{websocket}) { 
     $self->wsinput() 
   } else {
-    my $data=$self->in;
+    my $data=$self->in('loop');
     if ($self->{upgrademode}) {
       if (!$data) {
         if (gettimeofday()-$self->{upgradetime}>$self->{timeout}) {
@@ -430,18 +482,765 @@ sub takeloop {
   $self->outloop()
 }
 
+###############################################################################
+# Raw TCP/IP                                                                  #
+###############################################################################
+
+sub tcpipconnected {
+  my ($self,$tm) = @_;
+  my $caller=$self->{caller};
+  &$caller($self,'connect',$tm)
+}
+
 sub tcpip {
-  my ($host,$port,$loopmode,$caller,$ssl,$linemode,$timeout) = @_;
+  my ($host,$port,$loopmode,$caller,$ssl,$linemode,$timeout,$connectcallback) = @_;
   if (ref($caller) ne 'CODE') { error "GClient.tcpip: Caller is not a procedure-reference" }
-  my $self=openconnection($host,$port,$linemode,$timeout,$ssl);
+  if (!defined $connectcallback || !$connectcallback || (ref($connectcallback) ne 'CODE')) {
+    $connectcallback=\&tcpipconnected
+  }  
+  my $self=openconnection($host,$port,$linemode,$timeout,$ssl,$connectcallback);
   $self->{caller}=$caller;
   if ($self->{error}) { &$caller($self,"quit",$self->{error}); $self->quit; return $self }
   if ($loopmode) { $self->{loopmode}=1 }
-  &$caller($self,'connect',gettimeofday." ".$self->{host}.":".$self->{port});
+  &$caller($self,'init',gettimeofday());
   if ($loopmode) {
     while (!$self->{quit}) { $self->takeloop() }
   }
   return $self
+}
+
+###############################################################################
+# Telnet                                                                      #
+###############################################################################
+
+sub telnet {
+  # RFC 854 & 855
+  my ($host,$port,$loopmode,$caller,$timeout,$ssl) = @_;
+  if (ref($caller) ne 'CODE') { error "GClient.telnet: Caller is not a procedure-reference" }
+  if (!$port) { 
+    $port=23;
+    if ($ssl) { $port=1337 } # as used by stunnel, ssl on telnet is arbitrary
+  }
+  my $self=openconnection($host,$port,$loopmode,$timeout,$ssl,\&tcpipconnected);
+  $self->{protocol}='telnet'; $self->{telnet}=1;
+  $self->{usercaller}=$caller;
+  $self->{caller}=\&handle_telnet;
+  if ($self->{error}) { &$caller($self,"quit",$self->{error}); $self->quit; return $self }
+  if ($loopmode) { $self->{loopmode}=1 }
+  $self->{status}={ 
+    mode => 'char',
+    echo => 1,
+    binary => 1,
+    localchars => 1,
+    buffer => "",
+    xpos => 0, ypos => 0,
+    width => 80, height => 24
+  };
+  &$caller($self,'init',gettimeofday());
+  if ($loopmode) {
+    while (!$self->{quit}) { $self->takeloop() }
+  }
+  return $self
+}
+
+sub handle_telnet {
+  my ($self,$command,$data) = @_;
+  my $mode=$self->{status}{mode};
+  if ($command eq 'input') {
+    if ($mode eq 'char') {
+      my $chr=ord($data)
+    } elsif ($mode eq 'line') {
+      my $last=ord(substr($data,-1,1));
+
+    }
+    # set line mode
+
+  } elsif ($command eq 'connect') {
+    $self->telnet_cmd('DO Binary');
+    
+  }
+}
+
+sub telnet_cmd {
+  my ($self,$command) = @_;
+  my @list = split(/ /,$command);
+  my @bytes = ();
+  foreach my $cmd (@list) {
+    if ($TELNET->{$cmd}) { push @bytes,$TELNET->{$cmd} }
+    else { error "GClient.telnet_cmd: Command '$cmd' unknown in '$command'" }
+  }
+
+}
+
+sub telnet_init {
+  return {
+    NUL => 0, BEL => 7, BS => 8, HT => 9, LF => 10, VT => 11, FF => 12, CR => 13,
+    SE => 240, NOP => 241, DataMark => 242, BRK => 243, IP => 244, AO => 245,
+    AYT => 246, EC => 247, EL => 248, GA => 249, SB => 250,
+    WILL => 251, WONT => 252, DO => 253, DONT => 254, IAC => 255,
+    ExtOpt => 255, Binary => 0, Echo => 1, SupGA => 3, Status => 5, TimeMark => 6,
+    LineMode => 34, Reconnect => 2, AprSize => 4, RC => 7, OutWidth => 8, OutPageSize => 9,
+    OutCR => 10, OutTabStops => 11, OutTab => 12, OutFF => 13, OutVertTabsStops => 14,
+    OutVertTab => 15, OutLF => 16, ExtAsc => 17, Logout => 18, ByteMacro => 19,
+    DataEntry => 20, SUPDUP => 21, SUPDUPOut => 22, SendLoc => 23, TermType => 24,
+    EOR => 25, TACACS => 26, OutMark => 27, TermLoc => 28, '3270' => 29, X3Pad => 30,
+    NegWinSize => 31, TermSpeed => 32, RemoteFlow => 33, XDispLoc => 35, EnvOpt => 39,
+    AuthOpt => 37
+  }
+}
+
+###############################################################################
+# Hyper Text Transfer Protocol (HTTP) version 1.1                             #
+###############################################################################
+
+sub http {
+  # RFC 2068, 2616
+  # ZLIB RFC 1950, DEFLATE RFC 1951, GZIP RFC 1952
+  # Chunked data encoding RFC 2616 3.6.1
+  # RFC 2616 14.23 HTTP/1.1 requires request Host 
+  my ($host,$port,$loopmode,$caller,$timeout,$ssl,$path,$query,$user,$pass) = @_;
+  if (ref($caller) ne 'CODE') { error "GClient.http: Caller is not a procedure-reference" }
+  if (!$port) { 
+    $port=80; if ($ssl) { $port=443 }
+  }
+  my $self=openconnection($host,$port,0,$timeout,$ssl,\&tcpipconnected);
+  $self->{protocol}='http'; $self->{http}=1;
+  if ($path && (substr($path,0,1) ne '/')) { $path='/'.$path }
+  $self->{path}=$path; $self->{query}=$query;
+  $self->{usercaller}=$caller;
+  $self->{caller}=\&handle_http;
+  if ($self->{error}) { &$caller($self,"quit",$self->{error}); $self->quit; return $self }
+  if ($loopmode) { $self->{loopmode}=1 }
+  $self->{httpinfo} = {
+    request => "", header => {}, postdata => [], wantpost => 0,
+    user => $user, pass => $pass,
+    response => "", rescode => 0, readhead => 1, reshead => {}, wanted => 0,
+    website => "", chunked => 0, chunkmode => 0, chunkhex => "", chunkext => "",
+    chunkdata => "", chunksize => 0, encoding => "", trailer => {}
+  };
+  # parameters one can change on init event
+  $self->{noredirect}=0;
+  &$caller($self,'init',gettimeofday());
+  if ($loopmode) {
+    while (!$self->{quit}) { $self->takeloop() }
+  }
+  return $self  
+}
+
+sub handle_http {
+  my ($self,$command,$data) = @_;
+  # if ($command ne 'loop') { print "#### $command - $data\n" }
+  my $caller=$self->{usercaller};
+  if ($command eq 'error') {
+    &$caller($self,'error',$data)
+  } elsif ($command eq 'connect') {
+    &$caller($self,'connected',$data);
+    if (!$self->{norequest}) {
+      &$caller($self,'request')
+    }
+    if (!$self->{httpinfo}{request}) {
+      $self->{httpinfo}{request}="GET / HTTP/1.1"
+    }
+    # store request to detect cyclic redirect loops
+    my $hist={ host => $self->{host}, port => $self->{port} };
+    if ($self->{history}) {
+      push @{$self->{history}},$hist
+    } else {
+      $self->{history} = [ $hist ]
+    }
+    if (!$self->{norequest}) {
+      &$caller($self,'header')
+    }
+    if (!$self->{httpinfo}{header}{Host}) {
+      # host required in HTTP/1.1
+      $self->{httpinfo}{header}{Host}=$self->{host}.":".$self->{port};
+    }
+    if ($self->{httpinfo}{user} && $self->{httpinfo}{pass}) {
+      $self->auth(undef,$self->{httpinfo}{user},$self->{httpinfo}{pass})
+    } elsif ($self->{httpinfo}{pass}) {
+      $self->auth('bearer',undef,$self->{httpinfo}{pass})
+    }
+    if ($self->{httpinfo}{wantpost} && !$self->{norequest}) {
+      $self->boundary();
+      &$caller($self,'post');      
+    }
+    $self->sendheader()
+  } elsif ($command eq 'input') {
+    if ($self->{httpinfo}{chunkmode}) {
+      $self->readchunks($data); return
+    }
+    my @sl=split(/\r\n/,$data,-1); # LIMIT of -1 maintains the presence of undef at end-of-list 
+    while ($self->{httpinfo}{readhead}) {
+      if ($#sl < 0) { last }
+      my $line=shift @sl;
+      if (!$self->{httpinfo}{response}) {
+        $self->{httpinfo}{response}=$line;
+        my ($ver,$code,@txt) = split(/ /,$line);
+        $self->{httpinfo}{rescode}=$code;
+      } elsif ($line eq "") { 
+        $self->{httpinfo}{readhead}=0;
+        $self->correctheader();
+        $data=join("\r\n",@sl);
+      } else {
+        my ($key,@val) = split(/\:/,$line);
+        my $v=join(":",@val); $v =~ s/^[\s\t]+//; $v =~ s/[\s\t]+$//;
+        $self->{httpinfo}{reshead}{lc($key)}=$v;
+        if (lc($key) eq 'content-length') {
+          $self->{httpinfo}{wanted}=$v
+        } elsif (lc($key) eq 'vary') {
+          &$caller($self,'inform','vary '.$v)
+        } elsif (lc($key) eq 'content-encoding') {
+          $self->{httpinfo}{encoding}=lc($v)
+        } elsif (lc($key) eq 'transfer-encoding') {
+          if (lc($v) =~ /chunked/i) {
+            $self->{httpinfo}{chunked}=1
+          }
+        } elsif (lc($key) eq 'trailer') {
+          $v =~ s/[\s]//; my @tl=split(/\,/,$v);
+          for my $t (@tl) {
+            $self->{httpinfo}{trailer}{lc($t)}=1
+          }
+        }
+      }
+    }
+
+    if (!$self->{httpinfo}{readhead}) {
+      if (!$self->{httpinfo}{chunked}) {
+        if ($self->{httpinfo}{wanted}) {
+          $self->{httpinfo}{website}.=$data;
+          if (length($self->{httpinfo}{website}) >= $self->{httpinfo}{wanted}) {
+            $self->http_analyse()
+          }
+        } else {
+          # no content-length info whatsoever.. just quit reading
+          $self->http_analyse()
+        }
+      } else {
+        $self->{httpinfo}{chunkmode}=1;
+        $self->{httpinfo}{chunkdata}="";
+        $self->readchunks($data);        
+      }
+    }
+  }
+}
+
+sub readchunks {
+  my ($self,$data) = @_;
+  $self->{httpinfo}{chunkdata}.=$data;
+  $data=$self->{httpinfo}{chunkdata};
+  do {
+    if ($self->{httpinfo}{chunkmode} == 1) {
+      # read chunk (hexsize*[;ext[=val]]CRLF)
+      if ($data =~ /^\r\n/) {
+        $self->http_analyse(); return
+      }
+      if ($data =~ /\r\n/) {
+        my ($chunk,@rest) = split(/\r\n/,$data);
+        $data=join("\r\n",@rest);
+        $self->{httpinfo}{chunkdata}=$data;
+        my $hex=""; my @cl = split(//,$chunk);
+        for my $i (0..$#cl) {
+          if ($cl[$i] =~ /[0-9a-fA-F]/) {
+            $hex.=$cl[$i]
+          } else {
+            $self->{httpinfo}{chunkext}=substr($chunk,$i); last
+          }
+        }
+        $self->{httpinfo}{chunksize}=hex($hex);
+        $self->{httpinfo}{chunkmode}=2
+      } else {
+        # read more data
+        return
+      }  
+    }
+    if ($self->{httpinfo}{chunkmode} == 2) {
+      # read chunklen data and take as is
+      if ($self->{httpinfo}{chunksize}) {
+        if (length($data) >= $self->{httpinfo}{chunksize}) {
+          $self->{httpinfo}{website}.=substr($data,0,$self->{httpinfo}{chunksize});
+          $data=substr($data,$self->{httpinfo}{chunksize});
+          $self->{httpinfo}{chunkdata}=$data;
+          $self->{httpinfo}{chunkmode}=1
+        } else {
+          # read more data
+          return
+        }
+      } else {
+        if ($data =~ /^\r\n/) {
+          $self->http_analyse(); return
+        }
+        if ($self->{httpinfo}{trailer}) {
+          $self->{httpinfo}{chunkmode}=3;
+        } else {
+          $self->{httpinfo}{chunkmode}=1
+        }
+      }
+    }
+    if ($self->{httpinfo}{chunkmode} == 3) {
+      # read trailer
+      my @hl = split(/\r\n/,$data,-1);
+      for my $line (@hl) {
+        if (!$line) { $self->http_analyse(); return }
+        my ($key,$val) = split(/\:/,$line); $val =~ s/^[\s]+//; $val =~ s/[\s]+$//;
+        if (!$self->{httpinfo}{trailer}{lc($key)}) {
+          my $caller=$self->{usercaller};
+          &$caller($self,"inform","trailer illegal $key = $val")
+        } else {
+          $self->{httpinfo}{trailer}{lc($key)}=$val;
+          $self->{httpinfo}{reshead}{lc($key)}=$val;
+        }
+      }
+      $self->http_analyse(); return
+    }
+  } until (0)
+}
+
+# POST data
+
+sub boundary {
+  my ($self) = @_;
+  if ($self->{boundary}) { return }
+  my $seed=int (rand(100000000)+12345678); $seed.="Domero";
+  foreach my $k ($self->{httpinfo}{header}) {
+    $seed.=$k.$self->{httpinfo}{header}{$k}
+  }
+  $self->{boundary}=substr(sha256_hex($seed),10,20);
+  $self->sethdr("Content-Type","multipart/form-data; boundary=\"".$self->{boundary}."\"")
+}
+
+sub posturl {
+  my ($self,$data) = @_;
+  my $post=""; my @pl=();
+  foreach my $k (keys %$data) {
+    push @pl,$k."=".url_encode_utf8($data->{$k})
+  }
+  $post=join("&",@pl);
+  $self->sethdr("Content-Type","application/x-www-form-urlencoded");
+  $self->{httpinfo}{postdata}=$post;
+  $self->sethdr("Content-Length",length($self->{httpinfo}{postdata}));
+}
+sub postfile {
+  my ($self,$type,$data,$encode) = @_;
+  # for executables use type 'application/octet-stream' and encode undef
+  if (!$encode) { $encode="" } $encode=lc($encode);
+  $self->sethdr("Content-Type",$type);
+  $self->setcoding($encode);
+  $self->{httpinfo}{postdata}=encode($data,$encode);
+  $self->sethdr("Content-Length",length($self->{httpinfo}{postdata}));
+}
+sub postdata {
+  # RFC 7578
+  my ($self,$name,$value,$filename,$type,$encode) = @_;
+  if (!$value) { $value="" }
+  my $data="--".$self->{boundary}."\r\nContent-Disposition: form-data";
+  if ($name) { $data.="; name=\"$name\"" }
+  if ($filename) { $data.="; filename=\"$filename\"" }
+  if ($type) { $data.="\r\nContent-Type: $type" }
+  if ($encode) {
+    if (($encode eq 'base64') || ($encode eq 'quoted-printable') || ($encode eq '8bit') ||
+        ($encode eq '7bit') || ($encode eq 'binary')) {
+      # HTTP does not use the Content-Transfer-Encoding (CTE) field of RFC 2045.
+      # Proxies and gateways from MIME-compliant protocols to HTTP MUST remove any non-identity CTE
+      # ("quoted-printable" or "base64") encoding prior to delivering the response message
+      # to an HTTP client.
+      # (Chaosje) But a lot of servers will understand the CTE, so include it!
+      $data.="\r\nContent-Transfer-Encoding: $encode"
+    } elsif ($encode) {
+      $data.="\r\nContent-Encoding: $encode"
+    }
+  }
+  $self->{httpinfo}{postdata}.=$data."\r\n\r\n".encode($value,$encode)."\r\n"
+}
+sub setcharset {
+  # RFC 7578 4.6 Set default charset (recommended)
+  my ($self,$charset) = @_;
+  if (!$charset) { $charset='utf8' }
+  my $data="--".$self->{boundary}."\r\nContent-Disposition: form-data; name=\"_charset_\"";
+  $self->{httpinfo}{postdata}.=$data."\r\n\r\n".$charset."\r\n"
+}
+sub postcharset {
+  #  RFC 7578 4.5 Set charset for one Content-Disposition (not recommended)
+  my ($self,$name,$value,$charset) = @_;
+  if (!$value) { $value="" }
+  if (!$charset) { $charset='utf8' }
+  my $data="--".$self->{boundary}."\r\nContent-Disposition: form-data";
+  if ($name) { $data.="; name=\"$name\"" }
+  $data.="\r\nContent-Type: text/plain; charset=$charset\r\nContent-Transfer-Encoding: quoted-printable";
+  $self->{httpinfo}{postdata}.=$data."\r\n\r\n".encode_qp($value)."\r\n"
+}
+sub nosniff {
+  my ($self) = @_;
+  $self->sethdr("X-Content-Type-Options","nosniff")
+}
+
+# http-requests
+
+sub get {
+  my ($self,$path,$info) = @_;
+  req_get($self,'GET',$path,$info)
+}
+sub head {
+  # query GET but no response data expected
+  my ($self,$path,$info) = @_;
+  req_get($self,'HEAD',$path,$info)
+}
+sub post {
+  my ($self,$path) = @_;
+  req_post($self,'POST',$path)
+}
+sub patch {
+  # update some data, 200 = OK, 204 = Not found
+  my ($self,$path) = @_;
+  req_post($self,'PATCH',$path)
+}
+sub delete {
+  # returns 200 = OK, 202 = Accepted, 204 = Not found  
+  my ($self,$path) = @_;
+  req_post($self,'DELETE',$path)
+}
+sub put {
+  # returns 200 = OK, 201 = Created new field, 204 = Not found 
+  my ($self,$path) = @_;
+  req_post($self,'PUT',$path)
+}
+sub options {
+  my ($self,$path) = @_;
+  req_post($self,'OPTIONS',$path)
+}
+sub trace {
+  # debug POST call, no response data sent
+  my ($self,$path) = @_;
+  req_post($self,'TRACE',$path)
+}
+sub connect {
+  # open bi-directional tunnel to HTTPd
+  my ($self,$path) = @_;
+  req_post($self,'CONNECT',$path)
+}
+sub source {
+  # open bi-directional tunnel to HTTPd
+  my ($self,$path) = @_;
+  req_get($self,'SOURCE',$path)
+}
+
+# Request-headers
+
+sub auth {
+  # RFC 2617
+  my ($self,$method,$login,$pass) = @_;
+  if (!$method) { $method='basic' }
+  $method=lc($method); 
+  if (!$login) { $login=$pass }
+  if ($method eq 'basic') {
+    my $code = encode_base64($login.":".$pass);
+    $self->sethdr("Authorization","Basic $code")
+  } elsif ($method eq 'bearer') {
+    $self->sethdr("Authorization","Bearer $pass")
+  }
+  return $self
+}
+
+sub agent {
+  my ($self,$agent) = @_;
+  if (!$agent) { $agent='Mozilla/5.0 (compatible; Domero Perl Client '.$VERSION.')' }
+  $self->sethdr('User-Agent',$agent);
+  return $self
+}
+sub setcontent {
+  my ($self,$type) = @_;
+  if (!$type) { $type="text/html" }
+  $self->sethdr("Content-Type",$type);
+  return $self
+}
+sub accept {
+  my ($self,$mime) = @_;
+  if (!$mime) { $mime='*' }
+  $self->setpar("Accept",$mime);
+  return $self
+}
+sub lang {
+  my ($self,$lang,$qval) = @_;
+  if (!$lang) { $lang='*' }
+  $self->setpar('Accept-Language',$lang,$qval);
+  return $self
+}
+sub charset {
+  my ($self,$charset,$qval) = @_;
+  if (!$charset) { $charset='utf-8' }
+  $self->setpar('Accept-Charset',$charset,$qval);
+  return $self
+}
+sub ranges {
+  my ($self,$ranges,$qval) = @_;
+  if (!$ranges) { $ranges='bytes' }
+  $self->setpar('Accept-Ranges',$ranges,$qval);
+  return $self
+}
+sub age {
+  my ($self,$age,$qval) = @_;
+  if (!$age) { return $self }
+  $self->sethdr('Age',$age);
+  return $self
+}
+sub cache {
+  # max-age=<seconds>, max-stale[=<seconds>, min-fresh=<seconds>, no-cache,
+  # no-store, no-transform, only-if-cached
+  my ($self,$cache) = @_;
+  if (!$cache) { $cache='max-age=31536000' }
+  $self->setpar('Cache-Control',$cache);
+  return $self
+}
+sub nocache {
+  my ($self) =@_;
+  $self->sethdr('Cache-Control','no-cache');
+  return $self
+}
+
+# current encoding
+
+sub setcoding {
+  my ($self,$code) = @_;
+  if (!$code) { return }
+  $code=lc($code);
+  if (($code eq 'base64') || ($code eq 'quoted-printable') || ($code eq '8bit') ||
+      ($code eq '7bit') || ($code eq 'binary') || ($code eq 'x-token')) {
+    $self->sethdr("Content-Transfer-Encoding",$code)
+  } else {
+    $self->sethdr("Content-Encoding",$code);
+  }
+  return $self
+}
+
+# request encoding
+
+sub nocoding {
+  my ($self,$qval) = @_;
+  $self->setpar('Accept-Encoding','identity',$qval);
+  return $self
+}
+sub allcoding {
+  my ($self,$qval) = @_;
+  $self->setpar('Accept-Encoding','*',$qval);
+  return $self
+}
+sub setcompress {
+  my ($self,$qval) = @_;
+  $self->setpar('Accept-Encoding','compress',$qval);
+  return $self
+}
+sub gzip {
+  my ($self,$qval) = @_;
+  $self->setpar('Accept-Encoding','gzip',$qval);
+  return $self
+}
+sub deflate {
+  my ($self,$qval) = @_;
+  $self->setpar('Accept-Encoding','deflate',$qval);
+  return $self
+}
+sub broti {
+  my ($self,$qval) = @_;
+  $self->setpar('Accept-Encoding','br',$qval);
+  return $self
+}
+sub setbzip2 {
+  my ($self,$qval) = @_;
+  $self->setpar('Accept-Encoding','bzip2',$qval);
+  return $self
+}
+sub trailers {
+  my ($self,$qval) = @_;
+  $self->setpar('TE','trailers',$qval);
+  return $self
+}
+
+# calls for website ready
+
+sub response {
+  my ($self) = @_; return $self->{httpinfo}{response}
+}
+sub responsecode {
+  my ($self) = @_; return $self->{httpinfo}{rescode}
+}
+sub headers {
+  my ($self) = @_; return $self->{httpinfo}{reshead}
+}
+sub contenttype {
+  my ($self) = @_; return $self->{httpinfo}{reshead}{'content-type'}
+}
+sub content {
+  my ($self) = @_; return $self->{httpinfo}{website}
+}
+
+# internal http functions
+
+sub req_get {
+  my ($self,$req,$path,$info) = @_;
+  if (!$path) { $path='/' }
+  $self->{httpinfo}{request}="$req $path";
+  if ($info) {
+    if (ref($info)) {
+      my @kl=keys %$info;
+      if ($#kl>=0) {
+        $self->{httpinfo}{request}.="?"; my @kv=();
+        for my $k (@kl) {
+          push @kv,$k."=".url_encode_utf8($info->{$k})
+        }
+        $self->{httpinfo}{request}.=join('&',@kv)
+      }
+    } else {
+      $self->{httpinfo}{request}.="?$info"
+    }
+  }
+  $self->{httpinfo}{request}.=" HTTP/1.1"
+}
+
+sub req_post {
+  my ($self,$req,$path) = @_;
+  if (!$path) { $path='/' }
+  $self->{httpinfo}{request}="$req $path HTTP/1.1";
+  $self->{httpinfo}{wantpost}=1
+}
+
+sub sethdr {
+  my ($self,$key,$par) = @_;
+  $self->{httpinfo}{header}{$key}=$par
+}
+sub setpar {
+  my ($self,$key,$par,$qval) = @_;
+  if ($qval) { $par.=";q=$qval" }
+  if ($self->{httpinfo}{header}{$key}) {
+    $self->{httpinfo}{header}{$key}.=", $par"
+  } else {
+    $self->{httpinfo}{header}{$key}=$par
+  }
+}
+
+sub sendheader {
+  my ($self) = @_;
+  my @data=( $self->{httpinfo}{request} );
+  for my $k (keys %{$self->{httpinfo}{header}}) {
+    push @data,$k.": ".$self->{httpinfo}{header}{$k}
+  }
+  my $rd=join("\r\n",@data)."\r\n\r\n";
+  $self->out($rd); $self->takeloop();
+  if ($self->{httpinfo}{postdata}) {
+    my $bd=""; if ($self->{boundary}) { $bd="--".$self->{boundary}."--" }
+    $self->out($self->{httpinfo}{postdata}.$bd."\r\n");
+    $self->takeloop()
+  }
+}
+
+sub correctheader {
+  # look for possible conflicts in the header not allowed by the RFC's and correct them
+  my ($self) = @_;
+  # Content-Length vs. chunked
+  if ($self->{httpinfo}{chunked}) {
+    if ($self->{httpinfo}{wanted}) {
+      $self->{httpinfo}{wanted}=0;
+      delete $self->{httpinfo}{reshead}{'content-length'}
+    }
+  }
+}
+
+sub decode {
+  my ($self) = @_;
+  if ($self->{httpinfo}{encoding} eq 'identity') { return }
+  if (($self->{httpinfo}{encoding} eq 'gzip') || ($self->{httpinfo}{encoding} eq 'x-gzip')) {
+    my $x = new Compress::Raw::Zlib::Inflate( -WindowBits => WANT_GZIP );
+    my $decoded;
+    my $status = $x->inflate($self->{httpinfo}{website},$decoded);
+    $self->{httpinfo}{website} = $decoded
+  } elsif ($self->{httpinfo}{encoding} eq 'deflate') {
+    my $x = new Compress::Raw::Zlib::Inflate( -WindowBits => -MAX_WBIT );
+    my $decoded;
+    my $status = $x->inflate($self->{httpinfo}{website},$decoded);
+    $self->{httpinfo}{website} = $decoded
+  } elsif (($self->{httpinfo}{encoding} eq 'compress') || ($self->{httpinfo}{encoding} eq 'x-compress')) {
+    my $x = new Compress::Raw::Zlib::Inflate( -WindowBits => WANT_GZIP_OR_ZLIB );
+    my $decoded;
+    my $status = $x->inflate($self->{httpinfo}{website},$decoded);
+    $self->{httpinfo}{website} = $decoded
+  } elsif ($self->{httpinfo}{encoding} eq 'bzip2') {
+    my $bz; my $status; my $decoded;
+    ($bz, $status) = bzinflateInit();
+    ($decoded, $status) = $bz->bzinflate($self->{httpinfo}{website});
+    $self->{httpinfo}{website} = $decoded
+  }
+  # Br = Brotli => No Perl implementation found. On todo list. RFC 7932
+}
+
+sub http_analyse {
+  my ($self) = @_;
+  my $caller=$self->{usercaller};
+  # guard against exploits and http-data injection
+  my $len=length($self->{httpinfo}{website});
+  if ($self->{httpinfo}{wanted} && ($self->{httpinfo}{wanted} < $len)) {
+    $len-=$self->{httpinfo}{wanted};
+    $self->{httpinfo}{exploit}=substr($self->{httpinfo}{website},$self->{httpinfo}{wanted});
+    substr($self->{httpinfo}{website},$self->{httpinfo}{wanted},$len,"");
+    &$caller($self,'inform',"Exploit found of $len bytes")
+  }
+  # check errors
+  if ($self->{httpinfo}{rescode} == 401) {
+    # Authorization required
+    my $wanted=$self->{httpinfo}{reshead}{'www-authenticate'};    
+    &$caller($self,'auth',$wanted);
+    if (!$self->{httpinfo}{header}{'Authorization'}) {
+      &$caller($self,"error","Authorization required"); return
+    }
+    if (!$self->{noredirect}) {
+      my $new=http($self->{host},$self->{port},$self->{loopmode},$caller,$self->{timeout},$self->{ssl});
+      $self->copyvar($new); $new->{norequest}=1;
+      &$caller($self,'reconnect',$new);
+    } else {
+      &$caller($self,'quit')
+    }
+
+  }
+  # client errors (4xx) and server errors (5xx)
+  if (($self->{httpinfo}{rescode} >= 400) && ($self->{httpinfo}{rescode} <= 599)) {
+    &$caller($self,"error",$self->{httpinfo}{response});
+    return
+  }
+  # check redirects
+  if (($self->{httpinfo}{rescode} >= 300) && ($self->{httpinfo}{rescode} <= 399)) {
+    if (!$self->{httpinfo}{reshead}{location}) {
+      &$caller($self,'error',"Location missing on redirect"); return
+    }
+    &$caller($self,'inform',"redirect $self->{httpinfo}{rescode} $self->{httpinfo}{reshead}{location}");
+    my $url=spliturl($self->{httpinfo}{reshead}{location});
+    $self->quit();
+    # check for cyclic redirect loops
+    for my $h (@{$self->{history}}) {
+      if (($h->{host} eq $url->{host}) && ($h->{port} eq $url->{port})) {
+        &$caller($self,'error',"Cyclic redirect detected on $h->{host}:$h->{port}");
+        &$caller($self,"quit")
+      }
+    }
+    # auto redirect
+    if (!$self->{noredirect}) {
+      my $new=http($url->{host},$url->{port},$self->{loopmode},$caller,$self->{timeout},$url->{ssl});
+      $self->copyvar($new); $new->{norequest}=1;
+      $new->{history}=$self->{history};
+      &$caller($self,'reconnect',$new);
+    } else {
+      &$caller($self,'quit')
+    }
+    return
+  }
+  if ($self->{httpinfo}{encoding}) {
+    $self->decode()
+  }
+  my $tm=gettimeofday()-$self->{connecttime};
+  &$caller($self,'ready',$tm)
+}
+
+sub copyvar {
+  my($self,$new) = @_;
+  for my $k (%{$self->{httpinfo}}) {
+    if ($k) { $new->{httpinfo}{$k}=$self->{httpinfo}{$k} }
+  }  
 }
 
 sub spliturl {
@@ -479,390 +1278,288 @@ sub spliturl {
   return $info
 }
 
-sub dechunk {
-  my ($client,$data) = @_;
-  my $out="";
-  do {
-    my ($len,@rest) = split(/\r\n/,$data);
-    $data=join("\r\n",@rest);
-    if ($len =~ /[^0-9A-Fa-f]/) {
-      $client->{error}="Corrupted chunk-size in content"; return $out
-    }
-    if (!$len) { return $out }
-    $len=hex($len);
-    if (length($data) < $len) {
-      $client->{error}="Not enough data in chunk"; return $out
-    }
-    $out.=substr($data,0,$len,"");
-  } until (!length($data));
-  $client->{error}="Unexpected end of chunked data"; return $out
-}
-
-sub processheader {
-  my ($client,$line) = @_;
-  $line =~ s/\r//;
-  if ($line =~ /HTTP\/1\.[0-1] ([0-9]+) ?(.*)$/) {
-    $client->{header}{response}=$1;
-    $client->{header}{responsemessage}=$2;
-  } else {
-    my ($key,@vl) = split(/\:/,$line); my $val=join(':',@vl);
-    if (defined $key && defined $val) {
-      $key =~ s/^[\s\t]+//; $val =~ s/^[\s\t]+//; $val =~ s/[\s\t]+$//; # always those damn spaces :P not RFC but people throw garbage
-      if ($key =~ /^connection$/i) { $key="Connection" }
-      if ($key =~ /^content-type$/i) { $key="Content-Type" }
-      if ($key =~ /^content-length$/i) { $key="Content-Length" }
-      if ($key =~ /^content-encoding$/i) { $key="Content-Encoding" }
-      if ($key =~ /^transfer-encoding$/i) { $key="Transfer-Encoding" }
-      $client->{header}{$key}=$val;
-    }
-  }
-}
-
-sub website_event {
-  my ($client,$command,$data) = @_;
-  if ($::DEBUG) {
-    my $dat=substr($data,0,100);
-    print " :: $command = '$dat'\n";
-  }
-  if (!defined $data) { $data="" }
-  if (($command eq 'quit') || ($command eq 'error')) {
-    $client->{iquit}=1
-  } elsif ($command eq 'input') {
-    $client->{hbuffer}.=$data;
-    if ($client->{readheader}) {
-      if ($client->{hbuffer} =~ /\r\n\r\n/) {
-        my ($hdata,@cdata)=split(/\r\n\r\n/,$client->{hbuffer});
-        $client->{hbuffer}=join("\r\n\r\n",@cdata);
-        foreach my $line (split(/\r\n/,$hdata)) {
-          processheader($client,$line)
-        }
-        $client->{readheader}=0;
-        if (defined $client->{header}{'Content-Length'}) {
-          $client->{httplength}=$client->{header}{'Content-Length'};
-        } elsif ((defined $client->{header}{'Transfer-Encoding'}) && ($client->{header}{'Transfer-Encoding'} =~ /chunked/i)) {
-          $client->{chunked}=1;
-        } elsif ((defined $client->{header}{'Content-Encoding'}) && ($client->{header}{'Content-Encoding'} =~ /chunked/i)) {
-          $client->{chunked}=1;
-        }
-        if (defined $client->{header}{'Content-Encoding'} && ($client->{header}{'Content-Encoding'} =~ /gzip|deflate/i)) {
-          $client->{gzipped}=1
-        } elsif (defined $client->{header}{'Transfer-Encoding'} && ($client->{header}{'Transfer-Encoding'} =~ /gzip|deflate/i)) {
-          $client->{gzipped}=1
-        }
-        if ($client->{'Content-Type'} && (($client->{header}{'Content-Type'} =~ /rss/) || ($client->{header}{'Content-Type'} =~ /text\/xml/))) {
-          $client->{rss}=1
-        }
-      }
-    }
-    if (!$client->{readheader}) {
-      if ($client->{header}{'Connection'} && ($client->{header}{'Connection'} eq 'close')) {
-        $client->{iquit}=1; return
-      }
-      if ($client->{httplength}) {
-        if (length($client->{hbuffer}) >= $client->{httplength}) { 
-          $client->{ready}=1;
-          # prevent expolits
-          $client->{hbuffer}=substr($client->{hbuffer},0,$client->{httplength});
-        }        
-      } else {
-        if ($client->{chunked}) {
-          my $last=substr($client->{hbuffer},-7);
-          if ($last eq "\r\n0\r\n\r\n") { $client->{ready}=1 }
-          else { $client->{insecure}=gettimeofday() }
-        } else {
-          # pff... no indication..
-          if (!$client->{gzipped}) {
-            if ($client->{hbuffer} =~ /\<\/rss\>/) { $client->{ready}=1 }
-            if ($client->{hbuffer} =~ /\<\/html\>/) { $client->{ready}=1 }
-            if ($client->{hbuffer} =~ /\<\/xml\>/) { $client->{ready}=1 }
-          }
-          if (!$client->{ready}) { $client->{insecure}=gettimeofday() }
-        }
-      }
-      if ($client->{ready}) {
-        $client->{iquit}=1;
-      }
-    }
-  }
-}
+#### Website/RSS reader ##############################
 
 sub website {
-  my ($url,$proxy,$login,$pass,$nosniff,$recurs) = @_;
+  my ($url,$user,$pass) = @_;
   my $info=spliturl($url);
-  if ($info->{path}) { $info->{path} =~ s/^\/// }
-  my @header=(); my $proxyinfo;
-  if ($proxy) {
-    $proxyinfo=spliturl($proxy);
-    my $line="GET ".$info->{scheme}."://".$info->{host}.":".$info->{port};
-    $line.="/".$info->{path};
-    if ($info->{query}) { $line.='?'.$info->{query} }
-    $line.=" HTTP/1.1"; push @header,$line
-  } else {
-    my $line="GET /$info->{path}";
-    if ($info->{query}) { $line.='?'.$info->{query} }
-    $line.=" HTTP/1.1"; push @header,$line
-  }
-  if ($nosniff) {
-    push @header,"Host: $info->{host}:$info->{port}";
-    push @header,"Connection: keep-alive";
-    push @header,"Accept: text/html,text/xml,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8";
-    push @header,"Accept-Encoding: gzip, identity";
-    push @header,"Accept-Language: *";
-    push @header,"Cache-Control: max-age=0";
-    push @header,"DNT: 1";
-    push @header,"Upgrade-Insecure-Requests: 1";
-    push @header,'User-Agent: Mozilla/5.0 (compatible; Domero Perl Client ('.$VERSION.')';
-  } else {
-    push @header,"Host: $info->{host}:$info->{port}"; # in proxies, use the original!
-    push @header,'User-Agent: Mozilla/5.0 (compatible; Domero Perl Client ('.$VERSION.')';
-    push @header,"Accept: */*";        # All MIME Types
-    push @header,"Accept-Language: *"; # All languages
-    push @header,"Accept-Encoding: gzip, identity"; # All codecs
-    push @header,"Accept-Charset: utf-8, iso-8859-1;q=0.5";
-  }
-  if ($login && $pass) {
-    my $code = encode_base64($login.":".$pass);
-    push @header,"Authorization: Basic $code"
-  }
-  my $head=join("\r\n",@header)."\r\n\r\n";
-  if ($::DEBUG) {
-    print "  >>> SENDING <<<\n$head****************************\n";
-  }
-  my $client;
-  if ($proxy) {
-    $client=tcpip($proxyinfo->{host},$proxyinfo->{port},0,\&website_event,$proxyinfo->{ssl},0,5);
-  } else {
-    $client=tcpip($info->{host},$info->{port},0,\&website_event,$info->{ssl},0,5);
-  }
-  while ($client->{waitforinput} && !$client->{quit}) {
-    $client->takeloop()
-  }
-  if ($client->{quit}) { return $client }
-  $client->out($head);
-  $client->outburst();
-  #$client->{debug}=1;
-  $client->{readheader}=1;
-  $client->{hbuffer}="";
-  $client->{header}={};
-  $client->{httplength}=0;
-  $client->{chunked}=0;
-  $client->{content}="";
-  $client->{iquit}=0;
-  $client->{timedout}=0;
-  $client->{nosniff}=$nosniff;
-  $client->{gzipped}=0;
-  $client->{rss}=0;
-  my $tm=gettimeofday();
-  $client->{insecure}=0;
-  $client->{lastinput}=$tm;
-  $client->{ready}=0;
-  $client->{recurs}=0;
-  while (!$client->{iquit}) {
-    $client->takeloop();
-    my $tod=gettimeofday();
-    if ($tod-$tm>5) {
-      $client->{timedout}=1;
-      $client->{iquit}=1
-    }
-    if ($client->{insecure}) {
-      if ($tod-$client->{insecure} > 0.5) {
-        $client->{iquit}=1
+  my $self=http($info->{host},$info->{port},1,\&handle_website,undef,$info->{ssl},$info->{path},$info->{query},$user,$pass);
+  return $self 
+}
+
+sub handle_website {
+  my ($self,$command,$data) = @_;
+  if ($command eq 'init') {
+
+  } elsif ($command eq 'request') {
+    $self->get($self->{path},$self->{query})
+  } elsif ($command eq 'header') {
+    $self->agent()->lang('*')->allcoding()->charset('*')->cache()
+  } elsif ($command eq 'error') {
+    $self->quit()
+  } elsif ($command eq 'reconnect') {
+    $self=$data
+  } elsif ($command eq 'ready') {
+    $self->quit()
+  }   
+}
+
+###############################################################################
+# IceCast2                                                                    #
+###############################################################################
+
+sub icecast2 {
+  #   my ($host,$port,$loopmode,$caller,$ssl,$linemode,$timeout,$connectcallback) = @_;
+  my ($host,$port,$loopmode,$caller,$timeout,$ssl) = @_;
+  if (ref($caller) ne 'CODE') { error "GClient.icecast2: Caller is not a procedure-reference" }
+  if (!$port) { error "GClient.icecast2: No port given" }
+  my $self=openconnection($host,$port,0,$timeout,$ssl,\&tcpipconnected);
+  $self->{protocol}='icecast'; $self->{icecast}=1;
+  $self->{usercaller}=$caller;
+  $self->{caller}=\&handle_icecast2;
+  if ($self->{error}) { &$caller($self,"quit",$self->{error}); $self->quit; return $self }
+  if ($loopmode) { $self->{loopmode}=1 }
+  $self->{iceinfo} = {
+    meta => 1, bitrate => 0, samplerate => 0, mountpoint => "",
+    login => "source", password => "",
+    name => "", desc => "Domero - IceCast 2 stream", url => "", genre => 'Various',
+    header => {}, postdata => "", readhead => 1, response => "", responsecode => 0,
+    ready => 0, icesong => "", icedata => "", boost => 0, datatime => 0,
+    buffersize => 0, framesize => 0, frametime => 0, lasttime => 0
+  };
+  # parameters one can change on init event
+  $self->handle_icecast2('init',gettimeofday());
+  if ($loopmode) {
+    while (!$self->{quit}) { 
+      $self->takeloop();
+      if ($self->{iceinfo}{ready}) {
+        $self->icecastloop()
       }
     }
   }
-  # print "*** DONE READING ***\n";
-  # analyse header
-  if ($::DEBUG) {
-    print "  **>> READY = $client->{ready} || INSECURE = $client->{insecure}<<**\n";
+  return $self
+}
+
+sub takeiceloop {
+  my ($self) = @_;
+  $self->takeloop();
+  if ($self->{iceinfo}{ready}) {
+    $self->icecastloop()
   }
-  if (defined $client->{header}{response}) {
-    if ($::DEBUG) {
-      print "   >>>> RECEIVED <<<<\n";
-      foreach my $k (sort keys %{$client->{header}}) {
-        print "  $k => $client->{header}{$k}\n"
-      }
-      print "***********************\n"
-    }
-    # redirects
-    if (($client->{header}{response} >= 301) && ($client->{header}{response} <= 399) && $client->{header}{Location}) {
-      if (substr($client->{header}{Location},0,1) eq '/') {
-        $client->{header}{Location}=$info->{scheme}.'://'.$info->{host}.$client->{header}{Location}
-      }
-      if ($client->{header}{Location} ne $url) {
-        if (!$recurs) {
-          if ($proxy) {
-            return website($url,$client->{header}{Location},$login,$pass,undef,1)
+}
+
+sub handle_icecast2 {
+  my ($self,$command,$data) = @_;
+  my $caller=$self->{usercaller};
+  if ($command ne 'loop') {
+    my $d=$data; if (!$d) { $d='[undef]' }
+    # print " > CMD > $command - $d\n"
+  }
+  if ($command eq 'error') {
+    &$caller($self,'error',$data)
+  } elsif ($command eq 'init') {
+    &$caller($self,'icemount');
+    if (!$self->{iceinfo}{bitrate}) { &$caller($self,'error',"No bitrate given") }
+    if (!$self->{iceinfo}{samplerate}) { &$caller($self,'error',"No samplerate given") }
+    if (!$self->{iceinfo}{mountpoint}) { &$caller($self,'error',"No mountpoint given") }
+    if (!$self->{iceinfo}{password}) { &$caller($self,'error',"No password given") }
+    $self->{iceinfo}{framesize} = int (144 * $self->{iceinfo}{bitrate} / $self->{iceinfo}{samplerate});
+    my $onesec = $self->{iceinfo}{bitrate} >> 3;
+    $self->{iceinfo}{frametime} = $self->{iceinfo}{framesize} / $onesec;
+    print " * framesize = $self->{iceinfo}{framesize}\n * frametime = $self->{iceinfo}{frametime}\n";
+  } elsif ($command eq 'connect') {
+    &$caller($self,'connected',$data);
+    my $auth=encode_base64($self->{iceinfo}{login}.':'.$self->{iceinfo}{password});
+    my @header=("SOURCE ".$self->{iceinfo}{mountpoint}." ICE/1.0");
+    push @header,"Host: ".$self->{host}.':'.$self->{port};
+    push @header,"Authorization: Basic $auth";
+    push @header,"User-Agent: Domero gclient/$VERSION";
+    push @header,"Accept: */*";
+    push @header,"Content-Type: audio/mpeg";
+    push @header,"ice-public: 1";
+    push @header,"ice-name: ".$self->{iceinfo}{name};
+    push @header,"ice-bitrate: ".$self->{iceinfo}{bitrate};
+    push @header,"ice-description: ".$self->{iceinfo}{desc};
+    push @header,"ice-url: ".$self->{iceinfo}{url};
+    push @header,"ice-genre: ".$self->{iceinfo}{genre};
+    push @header,"ice-audio-info: ice-samplerate=".$self->{iceinfo}{samplerate}.';ice-bitrate='.$self->{iceinfo}{bitrate}.";ice-channels=2";
+    my $head=join("\r\n",@header)."\r\n\r\n";
+    $self->out($head);
+    $self->takeloop();
+  } elsif ($command eq 'input') {
+    if ($self->{iceinfo}{ready}) {
+      $self->icecastloop()
+    } else {
+      if ($self->{iceinfo}{readhead}) {
+        my @ll = split(/\r\n/,$data,-1); my $idx=0;
+        for my $line (@ll) {
+          $idx++;
+          if ($line eq "") {
+            $self->{iceinfo}{readhead} = 0;
+            $data=join("\r\n",@ll[$idx..$#ll]);
+            last
           } else {
-            return website($client->{header}{Location},undef,$login,$pass,undef,1)
+            if (!$self->{iceinfo}{response}) {
+              $self->{iceinfo}{response}=$line;
+              my @ls=split(/ /,$line); $self->{iceinfo}{responsecode}=$ls[1]
+            } else {
+              my ($k,$v) = split(/\:/,$line);
+              $k =~ s/[\s\t]+$//; $v =~ s/^[\s\t]+//;
+              $self->{iceinfo}{header}{lc($k)}=$v
+            }
           }
         }
       }
-    }    
-    # nosniff
-    if (!$client->{ready} && !$client->{nosniff} && $client->{header}{'X-Content-Type-Options'} && ($client->{header}{'X-Content-Type-Options'} eq 'nosniff')) {
-      # some servers require nosniff Upgrade-Insecure-Requests set to 1
-      if (!$recurs) {
-        return website($url,$client->{header}{Location},$login,$pass,$client->{header}{'Content-Type'},1)
+      if (!$self->{iceinfo}{readhead}) {
+        $self->{iceinfo}{postdata}.=$data;
+        my $len = length($self->{iceinfo}{postdata});
+        my $clen = $self->{iceinfo}{header}{'content-length'};
+        if (!$clen || ($len == $clen)) {
+          my $tm=gettimeofday();
+          $self->{icetime}=$tm + 0.1;
+          $self->{iceinfo}{ready} = 1;
+          $tm-=$self->{connecttime};
+          &$caller($self,'ready',$tm)
+        }
       }
     }
   }
-  # analyse content
-  if ($client->{chunked}) {
-    $client->{content}=dechunk($client,$client->{hbuffer})
-  } else {
-    $client->{content}=$client->{hbuffer}
-  }
-  if ($client->{content} ne "") {
-    if ($client->{gzipped}) {
-      $ZIPEVAL=1;
-      eval { $client->{content}=gunzip($client->{content}) };
-      $ZIPEVAL=0;
-      $client->{error}=$@
-    }
-  }
-  $client->quit();
-  return $client
 }
 
-sub zipeval {
-  return $ZIPEVAL
+sub icecastloop {
+  my ($self) = @_;
+  my $tm=gettimeofday();
+  my $caller=$self->{usercaller};
+  if ($tm >= $self->{icetime}) {
+    &$caller($self,'icedelay',$tm);
+    $self->{icetime} += 0.1
+  }
+  if ($self->{iceinfo}{meta} && !$self->{iceinfo}{icesong}) {
+    &$caller($self,'icesong')
+  }
+
+  # initial boost 0.5 sec data
+  if (!$self->{iceinfo}{boost}) {
+    my $sz = int ($self->{iceinfo}{framesize} * (0.5 / $self->{iceinfo}{frametime}) );
+    &$caller($self,'icedata',$sz);
+    $self->out($self->{iceinfo}{icedata});
+    $self->{iceinfo}{icedata}="";
+    $self->{iceinfo}{buffersize}=0;
+    $self->{iceinfo}{boost}=1;
+    $self->{iceinfo}{datatime}=$tm + $self->{iceinfo}{frametime}
+  }
+
+  # feed server framesize bytes, every frametime sec.
+  if ($tm >= $self->{iceinfo}{datatime}) {
+    &$caller($self,'icedata',$self->{iceinfo}{framesize});
+    $self->out(substr($self->{iceinfo}{icedata},0,$self->{iceinfo}{framesize},""));
+    $self->{iceinfo}{buffersize} -= $self->{iceinfo}{framesize};
+    $self->{iceinfo}{datatime} += $self->{iceinfo}{frametime}
+  }
 }
 
-sub handle_icecast2_metadata {
-  my ($client,$command,$data) = @_;
-  # print " ICE > $command $data\n";
-  if (($command eq 'quit') || ($command eq 'error') || ($command eq 'input')) {
-    $client->{iquit}=1
+sub icesong {
+  my ($self,$song) = @_;
+  icecast2_metadata($self->{host},$self->{port},$self->{iceinfo}{mountpoint},$self->{iceinfo}{password},$song)
+}
+
+sub icedata {
+  my ($self,$data) = @_;
+  $self->{iceinfo}{icedata}.=$data;
+  $self->{iceinfo}{buffersize}+=length($data)
+}
+
+sub ice_nometa {
+  my ($self) = @_;
+  $self->{iceinfo}{meta}=0
+}
+sub ice_mount {
+  my ($self,$mount) = @_;
+  if (!$mount) { $self->setice('mountpoint','') }
+  else {
+    if (substr($mount,0,1) ne '/') { $mount='/'.$mount }
+    $self->setice('mountpoint',$mount)
   }
+  return $self
+}
+sub ice_bitrate {
+  my ($self,$bitrate) = @_;
+  if (!$bitrate) { $bitrate='128000' }
+  if ($bitrate < 1000) { $bitrate *= 1000 }
+  $self->setice('bitrate',$bitrate);
+  return $self
+}
+sub ice_samplerate {
+  my ($self,$samplerate) = @_;
+  if (!$samplerate) { $samplerate='44100' }
+  if ($samplerate < 1000) { $samplerate *= 1000 }
+  $self->setice('samplerate',$samplerate);
+  return $self
+}
+sub ice_password {
+  my ($self,$pass) = @_;
+  $self->setice('password',$pass);
+  return $self
+}
+sub ice_name {
+  my ($self,$name) = @_;
+  $self->setice('name',$name);
+  return $self
+}
+sub ice_desc {
+  my ($self,$desc) = @_;
+  $self->setice('desc',$desc);
+  return $self
+}
+sub ice_genre {
+  my ($self,$genre) = @_;
+  $self->setice('genre',$genre);
+  return $self
+}
+sub ice_url {
+  my ($self,$url) = @_;
+  $self->setice('url',$url);
+  return $self
+}
+sub ice_login {
+  my ($self,$login) = @_;
+  if (!$login) { $login='source' }
+  $self->setice('login',$login);
+  return $self
+}
+sub setice {
+  my ($self,$tag,$value) = @_;
+  $self->{iceinfo}{$tag}=$value;
+  return $self
+}
+
+sub ice_headers {
+  my ($self) = @_;
+  return $self->{iceinfo}{header}
+}
+sub ice_response {
+  my ($self) = @_;
+  return $self->{iceinfo}{response}
+}
+sub ice_responsecode {
+  my ($self) = @_;
+  return $self->{iceinfo}{responsecode}
+}
+sub ice_postdata {
+  my ($self) = @_;
+  return $self->{iceinfo}{postdata}
 }
 
 sub icecast2_metadata {
   my ($host,$port,$mount,$pass,$song) = @_;
   $mount =~ s/^\///;
-  my $client=tcpip($host,$port,0,\&handle_icecast2_metadata);
-  while ($client->{waitforinput} && !$client->{quit}) {
-    $client->takeloop()
-  }
-  if ($client->{quit}) { return }
-  my $auth=encode_base64('source:'.$pass);
   $song=url_encode_utf8($song);
-  my @header=("GET /admin/metadata?pass=$pass&mode=updinfo&mount=/$mount&song=$song HTTP/1.1");
-  push @header,"Authorization: Basic $auth";
-  push @header,"User-Agent: Domero gclient/$VERSION (Mozilla Compatible)";
-  my $head=join("\r\n",@header)."\r\n\r\n";
-  $client->out($head);
-  $client->outburst();
-  $client->{iquit}=0;
-  # print " > OUT\n$head";
-  while (!$client->{iquit}) {
-    $client->takeloop();
-  }
-  $client->quit()  
+  website("$host:$port/admin/metadata?pass=$pass&mode=updinfo&mount=/$mount&song=$song")
 }
 
-sub handle_icecast2 {
-  my ($client,$command,$data) = @_;
-  if (!defined $data) { $data="" }
-  if (($command eq 'quit') || ($command eq 'error')) {
-    $client->{iquit}=1
-  } elsif ($command eq 'input') {
-    $client->{hbuffer}.=$data;
-    if ($client->{readheader}) {
-      if ($client->{hbuffer} =~ /\r\n\r\n/) {
-        my ($hdata,@cdata)=split(/\r\n\r\n/,$client->{hbuffer});
-        $client->{hbuffer}=join("\r\n\r\n",@cdata);
-        foreach my $line (split(/\r\n/,$hdata)) {
-          processheader($client,$line)
-        }
-        $client->{readheader}=0;
-      }
-    }
-  }
-}
-
-sub icecast2 {
-  my ($host,$port,$caller,$mount,$pass,$url,$name,$desc,$genre,$bitrate,$samplerate) = @_;
-  $mount =~ s/^\///;
-  if (ref $caller ne 'CODE') { error("GClient.IceCast2: Caller must be a procedure-referencee") }
-  my $client=tcpip($host,$port,0,\&handle_icecast2);
-  while ($client->{waitforinput} && !$client->{quit}) {
-    $client->takeloop()
-  }
-  if ($client->{quit}) { return $client }
-  my $auth=encode_base64('source:'.$pass);
-  my @header=("SOURCE /$mount ICE/1.0");
-  push @header,"Host: $host:$port";
-  push @header,"Authorization: Basic $auth";
-  push @header,"User-Agent: Domero gclient/$VERSION";
-  push @header,"Accept: */*";
-  push @header,"Content-Type: audio/mpeg";
-  push @header,"ice-public: 1";
-  push @header,"ice-name: $name";
-  push @header,"ice-bitrate: $bitrate";
-  push @header,"ice-description: $desc";
-  push @header,"ice-url: $url";
-  push @header,"ice-genre: $genre";
-  push @header,"ice-audio-info: ice-samplerate=$samplerate;ice-bitrate=$bitrate;ice-channels=2";
-  my $head=join("\r\n",@header)."\r\n\r\n";
-  $client->out($head);
-  $client->outburst();
-  $client->{readheader}=1;
-  $client->{hbuffer}="";
-  $client->{header}={};
-  $client->{iquit}=0;
-  $client->{getsong}=1;
-  $client->{iceburst}=1;
-  $client->{bursttime}=0;
-  my $tm=gettimeofday();
-  while (!$client->{iquit}) {
-    $client->takeloop();
-    if ($client->{iquit}) {
-      &$caller($client,'quit',$client->{error})
-    } else {
-      &$caller($client,"icedelay");
-      my $tod=gettimeofday();
-      if ($tod-$tm>=0.1) {
-        $tm=$tod;
-        my $resp=&$caller($client,"iceloop");
-        if ($resp && ($resp eq 'quit')) {
-          $client->quit(); $client->{iquit}=1
-        }
-      }
-      if (!$client->{readheader}) {
-        if ($client->{getsong}) {
-          $client->{getsong}=0;
-          my ($song,$itv)=&$caller($client,'icesong');
-          if (!$song || !$itv) {
-            $client->{getsong}=1
-          } else {
-            $client->{itv}=$itv / 1000000; $client->{datatime}=0; $client->{bursttime}=$client->{itv}*30+$tod;
-            #icecast2_metadata($host,$port,$mount,$pass,$song)
-          }
-        } else {
-          if ($client->{iceburst}<=60) {
-            my $data=&$caller($client,'icedata');
-            if (length($data) == 0) {
-              $client->{getsong}=1
-            } else {
-              $client->out($data);
-              $client->outburst();
-            }
-            $client->{iceburst}++
-          } elsif ($tod >= $client->{bursttime}) {
-            $client->{bursttime}+=$client->{itv};
-            my $data=&$caller($client,'icedata');
-            if (length($data) == 0) {
-              $client->{getsong}=1
-            } else {
-              $client->out($data);
-              $client->outburst();
-            }
-          }
-        }
-      }
-    }
-  }
-}
+###############################################################################
+# WebSockets                                                                  #
+###############################################################################
 
 sub starthandshake {
   my ($self,$ctm) = @_;
@@ -941,7 +1638,7 @@ sub wsinput {
   # RFC 6455
   my ($self,$data,$try) = @_;
   if (!$data) {
-    $data=$self->in();
+    $data=$self->in('websocket');
     if (defined $data) { $self->{ws}{buffer}.=$data }
   } else {
     $self->{ws}{buffer}.=$data
@@ -1075,15 +1772,21 @@ sub quit {
   $self->{quitting}=1;
   if ($self->{quit}) { return }
   $self->outburst;
-  if (defined $self->{socked}) {
-    if ($self->{ssl}) {
-      $self->{socket}->close(SSL_no_shutdown => 1)
-    } else {
-      shutdown($self->{socked},2); close($self->{socked}) 
+  if (defined $self->{socket}) {
+    if ($self->{socket} && IO::Socket::connected($self->{socket})) {
+      if ($self->{ssl}) {
+        $self->{socket}->close(SSL_no_shutdown => 1)
+      } else {
+        shutdown($self->{socket},2); close($self->{socket}) 
+      }
     }
   }
   $self->{quit}=1
 }
+
+###############################################################################
+# Global functions                                                            #
+###############################################################################
 
 sub encode_base64_char {
   my ($code,$c62,$c63) = @_;
@@ -1122,13 +1825,69 @@ sub encode_base64 {
   return $out
 }
 
+sub encode {
+  my ($data,$encode) = @_;
+  if (!$encode) { return $data }
+  if (($encode eq 'gzip') || ($encode eq 'x-gzip')) {
+    my $x = new Compress::Raw::Zlib::Deflate( -WindowBits => WANT_GZIP );
+    my ($output, $status);
+    $status = $x->deflate($data,$output);
+    $status = $x->flush($output);
+    return $output
+  } elsif ($encode eq 'deflate') {
+    my $x = new Compress::Raw::Zlib::Deflate( -WindowBits => -MAX_WBIT );
+    my ($output, $status);
+    $status = $x->deflate($data,$output);
+    $status = $x->flush($output);
+    return $output
+  } elsif (($encode eq 'compress') || ($encode eq 'x-compress')) {
+    my $x = new Compress::Raw::Zlib::Deflate( -WindowBits => WANT_GZIP_OR_ZLIB );
+    my ($output, $status);
+    $status = $x->deflate($data,$output);
+    $status = $x->flush($output);
+    return $output
+  } elsif ($encode eq 'bzip2') {
+    my ($bz, $status) = bzdeflateInit(); my $decoded;
+    ($decoded, $status) = $bz->bzdeflate($data);
+    return $decoded
+  } elsif ($encode eq 'base64') {
+    return encode_base64($data)
+  } elsif ($encode eq 'quoted-printable') {
+    return encode_qp($data)
+  } elsif ($encode eq '7bit') {
+    my $out=""; 
+    for my $line (split(/\n/,$data)) {
+      my $len=length($line); my $i=0; my $cl="";
+      while ($i<$len) {
+        $cl.=chr(ord(substr($line,$i,1)) & 127); $i++
+      }
+      while (length($cl) > 1000) {
+        $out.=substr($cl,0,1000,"")."\n"
+      }
+      $out.=$cl."\n"
+    }
+    return $out
+  } elsif ($encode eq '8bit') {
+    my $out=""; 
+    for my $line (split(/\n/,$data)) {
+      while (length($line) > 1000) {
+        $out.=substr($line,0,1000,"")."\n"
+      }
+      $out.=$line."\n"
+    }
+    return $out
+  }
+  return $data
+}
+
 sub localip {
   my $socket = IO::Socket::INET->new(
     Proto       => 'udp',
     PeerAddr    => '198.41.0.4', # a.root-servers.net
     PeerPort    => '53', # DNS
   );
-  return $socket->sockhost || '0.0.0.0';
+  if (!$socket) { return '0.0.0.0' }
+  return $socket->sockhost;
 }
 
-# EOF gclient.pm (C) 2018 Domero
+# EOF gclient.pm (C) 2019 Chaosje, Domero

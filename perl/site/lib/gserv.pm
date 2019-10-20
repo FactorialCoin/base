@@ -46,6 +46,7 @@ package gserv;
 use strict;
 use warnings;
 use Socket;
+use IO::Socket::IP -register;
 use IO::Handle;
 use IO::Select;
 use IO::Socket::SSL;
@@ -92,7 +93,7 @@ sub init {
   }
   my $self = {
     isserver => 1,
-    name => "Eureka Server $VERSION by Chaosje (C) 2018 Domero",      # Server name
+    name => "Eureka Server $VERSION by Chaosje (C) 2019 Domero",      # Server name
     version => $VERSION,                     # server version
     ssl => defined $ssldomain && $ssldomain, # Use SSL
     ssldomain => $ssldomain,                 # SSL keys will be found in $SSLPATH/ssldomain
@@ -988,7 +989,7 @@ sub httphandshake {
     # VERSION HyBi 00
     if ($client->{httpheader}{'sec-websocket-key1'}) {
 
-      # wybi00 is vulnerable!!!
+      # hybi00 is vulnerable!!!
       print STDOUT "[WEBSOCKET HyBi00]\n";
       out($client,"HTTP/1.1 400 Bad Request\r\nSec-WebSocket-Version: $client->{wsversion}\r\n\r\n");
       $client->{killafteroutput}=1;
@@ -1059,7 +1060,7 @@ sub httpresponse {
   # redirection
   elsif ($code == 300) { $msg="Multiple Choices" }
   elsif ($code == 301) { $msg="Moved Permanently" }
-  elsif ($code == 302) { $msg="Found" }
+  elsif ($code == 302) { $msg="Moved Temporary" }
   elsif ($code == 303) { $msg="See Other" }
   elsif ($code == 304) { $msg="Not Modified" } # RFC 7232
   elsif ($code == 305) { $msg="Use Proxy" }
@@ -1140,10 +1141,12 @@ sub broadcastfunc {
 }
 
 sub quit {
-  my ($self)=@_;
+  my ($self,$msg)=@_;
   if (!$self->{server}{running}) { exit }
   $|=1; my $nc=$self->{numclients};
-  print STDOUT prtm(),"Kill signal received! Killing $nc clients .. ";
+  if (!$msg) { $msg="[ no message ]" }
+  if (!$nc) { $nc=0 }
+  print STDOUT prtm(),"Kill signal received!\nQuit: $msg\nKilling $nc clients .. \n";
   $self->wsbroadcast('quit','close');
   for (my $c=0;$c<$nc;$c++) {
     $self->{clients}[$c]{killafteroutput}=1;
