@@ -73,7 +73,7 @@ use warnings;
 use Exporter;
 use vars qw($VERSION @ISA @EXPORT @EXPORT_OK);
 
-$VERSION     = '1.10';
+$VERSION     = '1.11';
 @ISA         = qw(Exporter);
 @EXPORT      = ();
 @EXPORT_OK   = qw(open close seek tell read write insert extract readlines filesize truncate create newfile lock unlock locked changeowner content append copy makedir closeall readfiles readdirs numfiles getfile);
@@ -581,8 +581,9 @@ sub numfiles {
 }
 
 sub getfile {
-  my ($self,$num) = @_;  
-  if (!$num || ($num<1) || ($num>$self->numfiles)) {
+  my ($self,$num) = @_;
+  if (!$num) { $num=0 }
+  if (($num<1) || ($num>$self->numfiles)) {
     error("GFIO.GetFile: File '$num' is invalid (must be between 1 and ".$self->numfiles.", reading '".$self->{dir}."')")
   }
   my $fi=$self->{list}[$num-1];
