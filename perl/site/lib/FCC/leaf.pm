@@ -6,7 +6,7 @@ package FCC::leaf;
 #                                                           #
 #     FCC Leaf v2.01                                        #
 #                                                           #
-#    (C) 2018 Chaosje Domero                                #
+#    (C) 2019 Chaosje, Domero                               #
 #    Leaves are less strict, the node will check all        #
 #                                                           #
 #############################################################
@@ -17,7 +17,7 @@ use warnings;
 use Exporter;
 use vars qw($VERSION @ISA @EXPORT @EXPORT_OK);
 
-$VERSION     = '2.10';
+$VERSION     = '2.1.1';
 @ISA         = qw(Exporter gclient);
 @EXPORT      = qw();
 @EXPORT_OK   = qw(startleaf leafloop outnode closeleaf balance solution sign transfer);
@@ -30,9 +30,9 @@ use IO::Socket::INET;
 use gclient 7.7.3;
 use gserv 4.3.2;
 use Time::HiRes qw(gettimeofday usleep);
-use FCC::global 2.01;
-use FCC::wallet 2.12 qw(validwallet);
-use FCC::fcc 1.25;
+use FCC::global 2.3.1;
+use FCC::wallet 2.1.4 qw(validwallet);
+use FCC::fcc 1.2.6;
 
 my $DEBUG = 0;
 

@@ -6,7 +6,7 @@ package FCC::fcc;
 #                                     #
 #     FCC Currency Kernel             #
 #                                     #
-#    (C) 2018 Domero, Chaosje         #
+#    (C) 2019 Domero, Chaosje         #
 #                                     #
 #######################################
 
@@ -15,7 +15,7 @@ use warnings;
 use Exporter;
 use vars qw($VERSION @ISA @EXPORT @EXPORT_OK);
 
-$VERSION     = '1.25';
+$VERSION     = '1.2.6';
 @ISA         = qw(Exporter);
 @EXPORT      = qw(version load save allowsave deref processledger collectspendblocks inblocklist saldo readblock readlastblock encodetransaction 
                   addtoledger ledgerdata createcoinbase createtransaction createfeetransaction calculatefee getdbhash getinblock sealinfo);
@@ -24,9 +24,9 @@ $VERSION     = '1.25';
 use Crypt::Ed25519;
 use gfio 1.10;
 use gerr;
-use FCC::global 1.99;
-use FCC::wallet 2.12;
-use FCC::fccbase 1.03;
+use FCC::global 2.3.1;
+use FCC::wallet 2.1.4;
+use FCC::fccbase 2.2.1;
 
 my $SDB = []; # spendable outblocks in positions (non ordered quick search) => validate
 my $OBL = []; # outblocklist in positions (ordered slow search) => create transaction
@@ -1077,7 +1077,7 @@ sub collectspendblocks {
 sub getinblock {
   my ($pos) = @_;
   my $fh=gfio::open("ledger$FCCEXT");
-  if (!$pos) { return readblock(0) }
+  if (!$pos) { my $ib=readblock(0); $fh->close; return $ib }
   $fh->seek($pos-1);
   my $dmt=$fh->read(1);
   if ($dmt ne 'z') {
@@ -1087,10 +1087,13 @@ sub getinblock {
     $fh->seek($pos); my $prev=hexdec($fh->read(4));
     $fh->seek($pos+152); my $type=hexdec($fh->read(1));
     if ($type ne $TRANSTYPES->{out}) {
-      return readblock($pos)
+      my $ib=readblock($pos);
+      $fh->close;
+      return $ib
     }
     $pos-=$prev
-  } until ($pos<0)
+  } until ($pos<0);
+  $fh->close; error("GetInBlock: Corrupt Ledger!!")
 }
 
 sub sealinfo {

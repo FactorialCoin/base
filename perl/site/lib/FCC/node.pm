@@ -16,23 +16,23 @@ use warnings;
 use Exporter;
 use vars qw($VERSION @ISA @EXPORT @EXPORT_OK);
 
-$VERSION     = '3.01';
+$VERSION     = '3.1.2';
 @ISA         = qw(Exporter);
 @EXPORT      = ();
 @EXPORT_OK   = qw();
 
 use POSIX;
 use JSON;
-use gerr;
-use gfio 1.10;
+use gerr 1.02;
+use gfio 1.11;
 use Digest::SHA qw(sha256_hex sha512_hex);
 use Crypt::Ed25519;
 use gserv 4.3.2;
-use gclient 7.7.3;
+use gclient 8.1.2;
 use Time::HiRes qw(gettimeofday usleep);
-use FCC::global 2.01;
-use FCC::wallet 2.12;
-use FCC::fcc 1.25;
+use FCC::global 2.3.2;
+use FCC::wallet 2.1.4;
+use FCC::fcc 1.2.6;
 
 my $DEBUG = 0;
 my $DEBUGMODE = 0;
@@ -202,6 +202,8 @@ sub fccconnect {
   }
   if ($FCCHANDLE->{error}) {
     prout " * Connecting to $COIN-Server Failed! $FCCHANDLE->{error}\n"; return 0
+  } else {
+    $FCCINIT=3
   }
   $FCCHANDLE->{fcc}={ isparent=>1, isfccserver => 1 };
   $FCCHANDLE->takeloop();
@@ -296,7 +298,7 @@ EOT
   my $myip=myip(); if (!$myip) { prout "Failed!\n"; exit }
   my $localip=gclient::localip();
   prout "$myip ($localip)";
-  prout "Starting $COIN Node Server $FCCBUILD ($vers)";
+  prout "Starting $COIN Node Server $FCCBUILD (ledger $vers)";
   prout "+++ Making time and space worth loving for +++"; prout(' ');
   if (!$myport) {
     if ($COIN eq 'PTTP') {
@@ -321,7 +323,7 @@ EOT
   $SERVER->{killhttp}=1;
   $SERVER->{pingtime}=80+int(rand(20));
   $SERVER->{debug}=0;
-  $SERVER->{name}="$COIN Node $vers ($FCCBUILD) by Chaosje";
+  $SERVER->{name}="$COIN Node $FCCBUILD (ledger $vers) by Chaosje";
   push @{$SERVER->{allowedip}},'*';
   $SERVER->{verbose}=$DEBUG;
   $SERVER->{verbosepingpong}=($DEBUG>1);
@@ -434,8 +436,9 @@ sub sockquit {
 sub myip {
   my $ip=""; my $p=0;
   while (($ip !~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/) && ($p<=$#{$FCCDNS})) {
-    my $res=gclient::website($FCCDNS->[$p]);
-    $ip=$res->{content}; chomp($ip); $p++;
+    my $res=website($FCCDNS->[$p]);
+    $ip=$res->content(); if ($ip) { chomp($ip) } else { $ip="" }
+    $p++;
   }
   return $ip
 }
@@ -696,7 +699,8 @@ sub handlefccserver {
     prout " <- [$COIN] $command = $data\n"
   }
   if ($command eq 'init') {
-    $FCCRECONNECT->{sec}=0
+    $FCCRECONNECT->{sec}=0;
+    $FCCRECONNECT->{time}=time;
   }
   if ($command eq 'connect') {
     prout " * Succesfully connected to the $COIN\-Server";
@@ -1114,7 +1118,7 @@ sub serverloop {
       $FCCINIT=2;
     } elsif ($FCCINIT == 2) {
       if ($FCCHANDLE) { $FCCHANDLE->takeloop() }
-      if (time-$FCCRECONNECT->{time}>5) {
+      elsif (time-$FCCRECONNECT->{time}>5) {
         prout " *!* ERROR: The $COIN\-Server seems to be offline ..\n";
         if (!-e "forward$FCCEXT") {
           prout " -> You have not done a port-forwarding check yet\n -> You cannot do this while the $COIN\-Server is offline\n -> Please try again later!";
@@ -1811,12 +1815,14 @@ sub c_ledgerdata {
     $INFOREAD=0; $INFOPOS+=32768;
     return
   }
-  if ($SYNC->{$client->{mask}}) {
+  if ($client && $SYNC->{$client->{mask}}) {
     $SYNC->{$client->{mask}}{ready}=1;
     $SYNC->{$client->{mask}}{data}=$k->{data};
   } elsif (!ledgerdata($k->{data},$k->{first})) {
-    prout " *> Node $client->{ip}:$client->{port} sent illegal ledgerdata";
-    killclient($client,"Desynced")
+    if ($client) {
+      prout " *> Node $client->{ip}:$client->{port} sent illegal ledgerdata";
+      killclient($client,"Desynced")
+    }
   }
   $LASTBLOCK=readlastblock(); $LEDGERLEN=$LASTBLOCK->{pos}+$LASTBLOCK->{next}+4;
 }

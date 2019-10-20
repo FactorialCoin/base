@@ -6,7 +6,7 @@ package FCC::miner;
 #                                                           #
 #     FCC Miner functions                                   #
 #                                                           #
-#    (C) 2018 Chaosje Domero                                #
+#    (C) 2019 Chaosje Domero                                #
 #    Leaves are less strict, the node will check all        #
 #                                                           #
 #############################################################
@@ -17,18 +17,23 @@ use warnings;
 use Exporter;
 use vars qw($VERSION @ISA @EXPORT @EXPORT_OK);
 
-$VERSION     = '1.02';
+$VERSION     = '1.1.3';
 @ISA         = qw(Exporter);
-@EXPORT      = qw(fac perm minehash solhash);
+@EXPORT      = qw(fac initperm perm minehash solhash);
 @EXPORT_OK   = qw();
 
-use FCC::global;
+use FCC::global 2.3.1;
 
 1;
 
 sub fac {
   my ($f) = @_;
   my $fac=1; while ($f>1) { $fac*=$f; $f-- } return $fac
+}
+
+sub initperm {
+  my ($len) = @_;
+  my $p=""; for my $i (0..$len-1) { $p.=chr(65+$i) } return $p
 }
 
 sub perm {

@@ -6,7 +6,7 @@ package FCC::wallet;
 #                                     #
 #     FCC Wallet                      #
 #                                     #
-#    (C) 2018 Domero                  #
+#    (C) 2019 Domero                  #
 #                                     #
 #######################################
 
@@ -15,20 +15,21 @@ use warnings;
 use Exporter;
 use vars qw($VERSION @ISA @EXPORT @EXPORT_OK);
 
-$VERSION     = '2.12';
+$VERSION     = '2.1.4';
 @ISA         = qw(Exporter);
-@EXPORT      = qw(publichash validatehash createwalletaddress walletexists walletisencoded validwalletpassword
+@EXPORT      = qw($WALLETEXISTS $WALLETDIR
+                  publichash validatehash createwalletaddress walletexists walletisencoded validwalletpassword
                   newwallet validwallet loadwallet loadwallets savewallet savewallets);
 @EXPORT_OK   = qw();
 
-use gfio;
-use gerr;
+use gfio 1.11;
+use gerr 1.02;
 use Crypt::Ed25519;
 use JSON qw(decode_json encode_json);
-use FCC::global;
+use FCC::global 2.3.1;
 
-my $WALLETDIR=".";
-&findwallet();
+our $WALLETDIR=".";
+our $WALLETEXISTS=&findwallet();
 
 my @WXOR = ();
 createtable();
@@ -60,8 +61,10 @@ sub findwallet {
     if (-f "./wallet/wallet$FCCEXT") {  $WALLETDIR="./wallet" }
     elsif (-f "../wallet$FCCEXT") {  $WALLETDIR=".." }
     elsif (-f "../wallet/wallet$FCCEXT") { $WALLETDIR="../wallet" }
+    elsif (-d "../wallet") {  $WALLETDIR="../wallet" }
     elsif (-d "./wallet") {  $WALLETDIR="./wallet" }
   }
+  return (-e "$WALLETDIR/wallet$FCCEXT")
 }
 
 sub publichash {

@@ -6,7 +6,7 @@ package FCC::global;
 #                                     #
 #     FCC Global functions            #
 #                                     #
-#    (C) 2018 Domero                  #
+#    (C) 2019 Domero                  #
 #                                     #
 #######################################
 
@@ -15,20 +15,20 @@ use warnings;
 use Exporter;
 use vars qw($VERSION @ISA @EXPORT @EXPORT_OK);
 
-$VERSION     = '2.01';
+$VERSION     = '2.3.2';
 @ISA         = qw(Exporter);
 @EXPORT      = qw($COIN $HP setcoin $FCCVERSION $FCCBUILD $FCCEXT $FCCTIME $FCCMAGIC $FCCSERVERKEY $TRANSTYPES $RTRANSTYPES
-                  $MINIMUMFEE $MINERPAYOUT $MINEBONUS $FCCSERVERIP $FCCSERVERPORT
+                  $MINIMUMFEE $MINERPAYOUT $MINEBONUS $FCCSERVERIP $FCCSERVERPORT ledgerversion
                   prtm securehash octhex hexoct hexchar dechex hexdec validh64 encode_base64 decode_base64 rsp
-                  fcctime setfcctime fcctimestring extdec doggy calcfee doggyfee fccstring fccencode zb64 b64z);
+                  fcctime setfcctime fcctimestring extdec doggy calcfee doggyfee fccstring fccencode zb64 b64z zip unzip);
 @EXPORT_OK   = qw();
 
 use POSIX;
 use Digest::SHA qw(sha256_hex sha512_hex);
-use gfio 1.10;
+use gfio 1.11;
 use Crypt::Ed25519;
-use Gzip::Faster;
-use gerr qw(error);
+use Compress::Zlib;
+use gerr 1.02 qw(error);
 
 our $COIN = "FCC";
 our $FCCVERSION = "0101"; # ledger version
@@ -64,7 +64,7 @@ sub setcoin {
     $FCCSERVERPORT = 9612;
     $FCCSERVERKEY = "1111145AFA4FBB1CF8D406A234C4CC361D797D9F8F561913D479DBC28C7A4F3E";
     $FCCEXT = '.pttp';
-    $FCCBUILD = '2.21';
+    $FCCBUILD = '1.4.2';
     $MINIMUMFEE = 110;
   } elsif ($COIN ne 'FCC') {
     die "Unknown coin '$_[0]'"
@@ -85,6 +85,12 @@ sub fcctime {
   $FCCTIME = $_[0] - $local
 }
 
+sub ledgerversion {
+  my $major = int substr($FCCVERSION,0,2);
+  my $minor = int substr($FCCVERSION,2,2);
+  return join('.',$major,$minor)
+}
+
 sub setfcctime {
   $FCCTIME=$_[0]
 }
@@ -103,6 +109,7 @@ sub fcctimestring {
 
 sub securehash {
   my ($code) = @_;
+  if (!$code) { error "FCC.Global.SecureHash: No Code given to hash!" }
   return uc(sha256_hex(sha512_hex($code)))
 }
 
@@ -287,14 +294,24 @@ sub decode_base64 {
  return $out
 }
 
+sub unzip {
+  my ($data) = @_;
+  return Compress::Zlib::memGunzip($data);
+}
+
+sub zip {
+  my ($data) = @_;
+  return Compress::Zlib::memGzip($data);
+}
+
 sub zb64 {
   my ($data) = @_;
-  return encode_base64(gzip($data))
+  return encode_base64(zip($data))
 }
 
 sub b64z {
   my ($data) = @_;
-  return gunzip(decode_base64($data))
+  return unzip(decode_base64($data))
 }
 
 sub prtm {
@@ -312,4 +329,4 @@ sub rsp {
   my $out=' 'x$x; return $out.$str
 }
 
-# EOF FCC::global (C) 2018 Domero
+# EOF FCC::global (C) 2019 Domero

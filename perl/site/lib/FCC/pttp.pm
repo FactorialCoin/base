@@ -1,4 +1,4 @@
-#!/use/bin/perl
+#!/usr/bin/perl
 
 package FCC::pttp;
 
@@ -6,7 +6,7 @@ package FCC::pttp;
 #                                     #
 #     PTTP specific functions         #
 #                                     #
-#    (C) 2018 Domero                  #
+#    (C) 2019 Domero                  #
 #                                     #
 #######################################
 
@@ -15,13 +15,13 @@ use warnings;
 use Exporter;
 use vars qw($VERSION @ISA @EXPORT @EXPORT_OK);
 
-$VERSION     = '1.01';
+$VERSION     = '1.1.2';
 @ISA         = qw(Exporter);
 @EXPORT      = qw(pttpgenesis);
 @EXPORT_OK   = qw();
 
-use FCC::global;
-use FCC::wallet;
+use FCC::global 2.3.1;
+use FCC::wallet 2.1.4;
 
 1;
 
@@ -77,4 +77,4 @@ sub pttpgenesis {
   return ({ type => 'genesis', fcctime => time + $FCCTIME, in => [] },$blocks)
 }
 
-# EOF FCC::pttp.pm (C) 2018 Domero/PTTPNederland
+# EOF FCC::pttp.pm (C) 2019 Domero/PTTPNederland
