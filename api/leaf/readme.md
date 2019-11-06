@@ -85,7 +85,8 @@
 <ul>
   <h2>0. http-get Wallet</h2>
   <ul>
-    <p><a href="https://factorialcoin.nl:5151/?wallet" target="_blank"><pre><code>https://factorialcoin.nl:5151/?wallet</code></pre></a></p>
+    <h3>For easy purpose only. For details about creating the wallet yourself, see FCC::wallet.pm</h3>
+    <p>FCC Wallet :  <a href="https://factorialcoin.nl:5151/?wallet" target="_blank"><pre><code>https://factorialcoin.nl:5151/?wallet</code></pre></a></p>
     <p>returns : <pre><code>{
   "encryted":0,
   "wlist":[
@@ -97,7 +98,7 @@
     }
   ]
 }</code></pre></p>
-    <p><a href="https://factorialcoin.nl:9612/?wallet" target="_blank"><pre><code>https://factorialcoin.nl:9612/?wallet</code></pre></a></p>
+    <p>PTTP Wallet : <a href="https://factorialcoin.nl:9612/?wallet" target="_blank"><pre><code>https://factorialcoin.nl:9612/?wallet</code></pre></a></p>
     <p>returns : <pre><code>{
   "encryted":0,
   "wlist":[
