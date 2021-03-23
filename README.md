@@ -14,9 +14,9 @@ You can earn FCC and/or PTTP by mining it or running a node in which case you wi
 <p>64 bit: Strawberry Perl 5.28 : http://strawberryperl.com/download/5.28.0.1/strawberry-perl-5.28.0.1-64bit.msi</p>
 <p>32 bit: Strawberry Perl 5.28 : http://strawberryperl.com/download/5.28.0.1/strawberry-perl-5.28.0.1-32bit.msi</p>
 <p>Linux</p>
-<p>32 & 64 bit: ActiveState Perl 5.26 : http://downloads.activestate.com/ActivePerl/releases/5.26.1.2601/ActivePerl-5.26.1.2601-x86_64-linux-glibc-2.15-404865.tar.gz </p>
+<p>32 & 64 bit: ActiveState Perl 5.26 : https://platform.activestate.com/activestate/activeperl-5.28/auto-fork?download=linux</p>
 <p>Macintosh</p>
-<p>32 & 64 bit: ActiveState Perl 5.26 : http://downloads.activestate.com/ActivePerl/releases/5.26.1.2601/ActivePerl-5.26.1.2601-darwin-13.4.0-404865.pkg </p>
+<p>32 & 64 bit: ActiveState Perl 5.26 : https://platform.activestate.com/ActiveState/ActivePerl-5.28-macOS/auto-fork </p>
 
 <hr>
 <p>Download FCC/PTTP Install and Run Scripts:</p>
