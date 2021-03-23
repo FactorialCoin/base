@@ -16,7 +16,7 @@ You can earn FCC and/or PTTP by mining it or running a node in which case you wi
 <p>Linux</p>
 <p>32 & 64 bit: ActiveState Perl 5.28 : https://camel-builds.s3.amazonaws.com/ActivePerl/x86_64-linux-glibc-2.12/20210220T002401Z/ActivePerl-5.28.1.0000-x86_64-linux-glibc-2.12-5efc8512.tar.gz</p>
 <p>Macintosh</p>
-<p>32 & 64 bit: ActiveState Perl 5.26 : https://pre-platform-installers.s3.amazonaws.com/ActivePerl-5.28.1.2801-darwin-13.4.0-bbb7e70b7d.pkg </p>
+<p>32 & 64 bit: ActiveState Perl 5.28 : https://pre-platform-installers.s3.amazonaws.com/ActivePerl-5.28.1.2801-darwin-13.4.0-bbb7e70b7d.pkg </p>
 
 <hr>
 <p>Download FCC/PTTP Install and Run Scripts:</p>
