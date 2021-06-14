@@ -11,8 +11,8 @@ You can earn FCC and/or PTTP by mining it or running a node in which case you wi
 <hr>
 <p>Download and Install Perl :</p>
 <p>Windows</p>
-<p>64 bit: Strawberry Perl 5.28 : http://strawberryperl.com/download/5.28.0.1/strawberry-perl-5.28.0.1-64bit.msi</p>
-<p>32 bit: Strawberry Perl 5.28 : http://strawberryperl.com/download/5.28.0.1/strawberry-perl-5.28.0.1-32bit.msi</p>
+<p>64 bit: Strawberry Perl 5.28 : https://strawberryperl.com/download/5.32.1.1/strawberry-perl-5.32.1.1-64bit.msi</p>
+<p>32 bit: Strawberry Perl 5.28 : https://strawberryperl.com/download/5.32.1.1/strawberry-perl-5.32.1.1-32bit.msi</p>
 <p>Linux</p>
 <p>32 & 64 bit: ActiveState Perl 5.28 : https://platform.activestate.com/ActiveState/ActivePerl-5.28</p>
 <p>Macintosh</p>
@@ -34,7 +34,8 @@ You can earn FCC and/or PTTP by mining it or running a node in which case you wi
 <li>(PTTP) https://factorialcoin.nl/pttp/download/macintosh</li>
 </p>
 <hr>
-<p>GitHub Install:</p>
+<p>GitHub Install (developers only):</p>
+<i>THIS VERSION IS NOT ALWAYS UPTODATE</i>
 
 <p>To download the Domero Perl-Base from<br>
 the FactorialCoin Domero Perl-Base https://github.com/FactorialCoin/base/ repository:</p>
