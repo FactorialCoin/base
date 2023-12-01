@@ -1,0 +1,154 @@
+{
+    "openapi": "3.0.2",
+    "info": {
+        "version": "1.0",
+        "title": "FactorialCoin Leaf Api",
+        "description": "FactorialCoin Leaf Api",
+        "contact": {
+            "name": "FactorialCoin",
+            "url": "https://github.com/FactorialCoin"
+        },
+        "Basic Framework":{
+            "WebSocket Support":"All Communcations go over the WebSocket protocol. (*Except for the nodelist collection thru https)",
+            "JSON Communcations":"All Communcations are spoken with the JSON protocol.",
+            "Ed25519 Encryption":"All Encryption needed is the Ed25519 Sign Function for Signatures with your Wallets Public and Private Keys."
+        }
+    },
+    "nodelist": [
+        {
+            "coin":"FCC",
+            "url": "https://factorialcoin.nl:5151/?nodelist",
+            "description": "nodelist"
+        }
+    ],
+    "wallet-leaf": {
+        "in:hello": {
+            "in":{
+                "command":"hello",
+                "host":"[node-ip]",
+                "port":"[node-port]",
+                "version":"[fcc-version]",
+            },
+            "out": {
+                "command":"identify",
+                "type":"leaf",
+                "version":"[fcc-version]"
+            }
+        },
+        "out:balance": {
+            "out":{
+                "command":"balance",
+                "wallet":"[fcc-wallet-address]"
+            },
+            "error":{
+                "command":"balance",
+                "error":"[error-message]"
+            },
+            "in":{
+                "command":"balance",
+                "wallet":"[fcc-wallet-address]",
+                "balance":"[fccamount]"
+            }
+        },
+        "out:newtransaction":{
+            "out":{
+                "command":"newtransaction",
+                "transid":"[your-transaction-idnr]",
+                "pubkey":"[wallet-pubkey]",
+                "to":[
+                    {
+                        "wallet":"[wallet-address]",
+                        "amount":"[doggy]",
+                        "fee":"[doggy]"
+                    }
+                ]
+            },
+            "error":{
+                "command":"newtransaction",
+                "transid":"[your-transaction-idnr]",
+                "error":"[error-message]"
+            },
+            "in":{
+                "command":"newtransaction",
+                "transid":"[your-transaction-idnr]",
+                "sign":"[transaction-ledger-data-to-sign]",
+                "fcctime":"[fcctimestamp]"
+            }
+        },
+        "out:signtransaction":{
+            "out":{
+                "command":"signtransaction",
+                "transid":"[your-transaction-idnr]",
+                "signature":"[your-transaction-ledger-data-signature]"
+            },
+            "error":{
+                "command":"signtransaction",
+                "transid":"[your-transaction-idnr]",
+                "error":"[error-message]"
+            },
+            "in":{
+                "command":"signtransaction",
+                "transid":"[your-transaction-idnr]",
+                "transhash":"[node-transaction-id]"
+            }
+        },
+        "in:processed":{
+            "error":{
+                "command":"processed",
+                "transhash":"[node-transaction-id]",
+                "error":"[error-message]" 
+            },
+            "in":{
+                "command":"processed",
+                "transhash":"[node-transaction-id]",
+                "wallet":"[wallet-address]",
+                "status":"success"
+            }
+        }
+    },
+    "miner-leaf": {
+        "in:hello": {
+            "in":{
+                "command":"hello",
+                "host":"[node-ip]",
+                "port":"[node-port]",
+                "version":"[fcc-version]",
+            },
+            "out": {
+                "command":"identify",
+                "type":"miner",
+                "version":"[fcc-version]"
+            }
+        },
+        "out:mine":{
+            "out":{
+                "command":"mine"
+            },
+            "in":{
+                "command":"mine",
+                "challenge":"[ANSWER]",
+                "coincount":"[CBCOUNT]",
+                "diff":"[DIFF]",
+                "length":"[DFAC]",
+                "hints":"[HINTSTR]",
+                "ehints":"[EHINTSTR]",
+                "reward":"[MINERPAYOUT]",
+                "time":"[FCCTIME]",
+                "lastsol":"[LASTSOL]"
+            }
+        },
+        "out:solution":{
+            "out":{
+                "command":"solution",
+                "solhash":"[SOLUTION_HASH]",
+                "wallet":"[wallet-address]"
+            },
+            "error":{
+                "command":"solerr"
+            },
+            "in":{
+                "command":"solution"
+            }
+        }
+    }
+}
