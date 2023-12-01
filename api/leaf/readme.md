@@ -71,7 +71,7 @@
 <ul>
   <h2>WebSocket Support</h2>
   <p>All Communcations go over the WebSocket protocol. 
-    <i>(*Except for the nodelist collection thru https)</i>
+    <i>(*Except for the nodelist collection through https)</i>
   </p>
   <h2>JSON Communcations</h2>
   <p>All Communcations are spoken with the JSON protocol.</p>
