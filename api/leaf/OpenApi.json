@@ -9,7 +9,7 @@
             "url": "https://github.com/FactorialCoin"
         },
         "Basic Framework":{
-            "WebSocket Support":"All Communcations go over the WebSocket protocol. (*Except for the nodelist collection thru https)",
+            "WebSocket Support":"All Communcations go over the WebSocket protocol. (*Except for the nodelist collection through https)",
             "JSON Communcations":"All Communcations are spoken with the JSON protocol.",
             "Ed25519 Encryption":"All Encryption needed is the Ed25519 Sign Function for Signatures with your Wallets Public and Private Keys."
         }
