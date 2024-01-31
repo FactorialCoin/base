@@ -183,7 +183,7 @@
     {
       "wallet":"[wallet-address]",
       "amount":[doggy],
-      "fee":[doggy]
+      "fee":[percentage * 100 (integer 100% = 10000, 0.5% = 50)]
     }, ..
   ]
 }</code></pre></p>
