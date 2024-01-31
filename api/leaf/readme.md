@@ -131,7 +131,7 @@
   "command":"hello",
   "host":"[node-ip]",
   "port":"[node-port]",
-  "version":"[fcc-version]"
+  "version":"[fcc-ledger-version]"
 }</code></pre></p>
   </ul>
   <h2>2. out > command:identify</h2>
@@ -139,7 +139,7 @@
   <p><pre><code>{
   "command":"identify",
   "type":"leaf",
-  "version":"[fcc-version]"
+  "version":"[fcc-ledger-version]" (we use 0101 to start with)
 }</code></pre></p>
   </ul>
   <p><i><strong>*** After this react with the following JSON commands ***</strong></i></p>
