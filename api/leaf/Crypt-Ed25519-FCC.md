@@ -1,8 +1,3 @@
-
-Here’s a **Markdown document** that serves as an **introduction and index** for the current list of **Ed25519FCC modules** across different programming languages.
-
----
-
 ### **📌 Ed25519FCC: Multi-Language Ed25519 Wrapper**
 **A cross-platform cryptographic module for Ed25519 key generation, signing, and verification, supporting Perl-compatible 64-byte ⇄ 32-byte private key conversion.**
 
