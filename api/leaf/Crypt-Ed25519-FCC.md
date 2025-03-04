@@ -4,18 +4,18 @@
 ---
 
 ## **📖 Table of Contents**
-- [Introduction](#introduction)
-- [Supported Languages](#supported-languages)
-  - [Android (Java)](#android-java)
-  - [Kotlin](#kotlin)
-  - [iOS (Swift)](#ios-swift)
-  - [JavaScript (Node.js & Browser)](#javascript-nodejs--browser)
-  - [Python](#python)
-  - [Go](#go)
-  - [Rust](#rust)
-  - [Ruby](#ruby)
-- [How It Works](#how-it-works)
-- [Next Steps](#next-steps)
+- [Introduction](#-introduction)
+- [Supported Languages](#-supported-languages)
+  - [Android (Java)](#-android-java)
+  - [Kotlin](#-kotlin)
+  - [iOS (Swift)](#-ios-swift)
+  - [JavaScript (Node.js & Browser)](#-javascript-nodejs--browser)
+  - [Python](#-python)
+  - [Go](#-go)
+  - [Rust](#-rust)
+  - [Ruby](#-ruby)
+- [How It Works](#-how-it-works)
+- [Next Steps](#-next-steps)
 
 ---
 
@@ -35,7 +35,7 @@ Ed25519FCC is a cryptographic library that provides **Ed25519 key management, si
 - Uses **BouncyCastle** for Ed25519 key generation, signing, and verification.
 - Converts between **Perl-style 64-byte** and **Standard 32-byte** private keys.
 
-📌 **[View the Android module](#ed25519fcc-for-android)**
+📌 **[View the Android module](#-ed25519fcc-for-android)**
 
 ---
 
@@ -43,7 +43,7 @@ Ed25519FCC is a cryptographic library that provides **Ed25519 key management, si
 - Provides full Kotlin implementation for **Android applications**.
 - Uses BouncyCastle similar to Java for keypair generation and signing.
 
-📌 **[View the Kotlin module](#ed25519fcc-for-kotlin)**
+📌 **[View the Kotlin module](#-ed25519fcc-for-kotlin)**
 
 ---
 
@@ -51,7 +51,7 @@ Ed25519FCC is a cryptographic library that provides **Ed25519 key management, si
 - Implements **CryptoKit** for Ed25519 keypair management.
 - Wrapper around Apple's native Ed25519 functions.
 
-📌 **[View the iOS module](#ed25519fcc-for-ios)**
+📌 **[View the iOS module](#-ed25519fcc-for-ios)**
 
 ---
 
@@ -59,7 +59,7 @@ Ed25519FCC is a cryptographic library that provides **Ed25519 key management, si
 - Uses **TweetNaCl.js** for fast, efficient Ed25519 cryptography.
 - Supports **both Node.js and browser environments**.
 
-📌 **[View the JavaScript module](#ed25519fcc-for-javascript)**
+📌 **[View the JavaScript module](#-ed25519fcc-for-javascript)**
 
 ---
 
@@ -67,7 +67,7 @@ Ed25519FCC is a cryptographic library that provides **Ed25519 key management, si
 - Based on **PyNaCl (libsodium bindings)** for cryptographic operations.
 - Enables signing and verification for **Python Web3 apps**.
 
-📌 **[View the Python module](#ed25519fcc-for-python)**
+📌 **[View the Python module](#-ed25519fcc-for-python)**
 
 ---
 
@@ -75,7 +75,7 @@ Ed25519FCC is a cryptographic library that provides **Ed25519 key management, si
 - Uses **Go's built-in crypto/ed25519 package**.
 - Lightweight and efficient for blockchain and backend apps.
 
-📌 **[View the Go module](#ed25519fcc-for-go)**
+📌 **[View the Go module](#-ed25519fcc-for-go)**
 
 ---
 
@@ -83,7 +83,7 @@ Ed25519FCC is a cryptographic library that provides **Ed25519 key management, si
 - Uses **RustCrypto’s ed25519-dalek** for ultra-secure key handling.
 - Ideal for **blockchain development and high-performance systems**.
 
-📌 **[View the Rust module](#ed25519fcc-for-rust)**
+📌 **[View the Rust module](#-ed25519fcc-for-rust)**
 
 ---
 
@@ -91,7 +91,15 @@ Ed25519FCC is a cryptographic library that provides **Ed25519 key management, si
 - Built on **RbNaCl** (libsodium bindings for Ruby).
 - Enables signing and verifying messages for **Rails & Web3 apps**.
 
-📌 **[View the Ruby module](#ed25519fcc-for-ruby)**
+📌 **[View the Ruby module](#-ed25519fcc-for-ruby)**
+
+---
+
+### **OpenSSL**
+- Built on **RbNaCl** (libsodium bindings for Ruby).
+- Enables signing and verifying messages for **Rails & Web3 apps**.
+
+📌 **[View the Ruby module](#-ed25519fcc-for-openssl)**
 
 ---
 
@@ -1241,7 +1249,7 @@ puts "Signature Valid: #{valid}"
 ---
 
 
-### **OpenSSL**
+### **Edd25519FCC for OpenSSL**
 
 - **Keep using Perl's 64-byte private key format (4-bit encoded) as input and output.**
 - **Ensure OpenSSL compatibility by converting the private key dynamically for operations.**
