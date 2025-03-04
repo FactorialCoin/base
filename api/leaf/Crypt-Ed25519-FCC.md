@@ -1248,7 +1248,7 @@ puts "Signature Valid: #{valid}"
 ---
 
 
-### **Edd25519FCC for OpenSSL**
+### **Ed25519FCC for OpenSSL**
 
 - **Keep using Perl's 64-byte private key format (4-bit encoded) as input and output.**
 - **Ensure OpenSSL compatibility by converting the private key dynamically for operations.**
