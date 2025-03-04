@@ -1248,14 +1248,7 @@ puts "Signature Valid: #{valid}"
 ---
 
 
-### **📜 Ed25519FCC for OpenSSL**
-
-- **Keep using Perl's 64-byte private key format (4-bit encoded) as input and output.**
-- **Ensure OpenSSL compatibility by converting the private key dynamically for operations.**
-- **Extract the public key from the existing Perl key pair.**
-- **On key generation, reconstruct the Perl-format private key from the extracted 32-byte seed.**
-  
----
+# **📜 Ed25519FCC for OpenSSL**
 
 ### **📜 OpenSSL-Compatible Ed25519FCC Java Wrapper (Perl-Compatible)**
 ```java
