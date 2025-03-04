@@ -96,10 +96,8 @@ Ed25519FCC is a cryptographic library that provides **Ed25519 key management, si
 ---
 
 ### **OpenSSL**
-- Built on **RbNaCl** (libsodium bindings for Ruby).
-- Enables signing and verifying messages for **Rails & Web3 apps**.
 
-📌 **[View the Ruby module](#-ed25519fcc-for-openssl)**
+📌 **[View the OpenSSL module](#-ed25519fcc-for-openssl)**
 
 ---
 
