@@ -14,6 +14,7 @@
   - [Go](#-go)
   - [Rust](#-rust)
   - [Ruby](#-ruby)
+  - [OpenSSL](#-openssl)
 - [How It Works](#-how-it-works)
 - [Next Steps](#-next-steps)
 
@@ -95,7 +96,7 @@ Ed25519FCC is a cryptographic library that provides **Ed25519 key management, si
 
 ---
 
-### **OpenSSL**
+### **🌐 OpenSSL**
 
 📌 **[View the OpenSSL module](#-ed25519fcc-for-openssl)**
 
