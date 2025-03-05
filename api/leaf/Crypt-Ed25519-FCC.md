@@ -62,7 +62,7 @@ Ed25519FCC is a cryptographic library that provides **Ed25519 key management, si
 - Uses **BouncyCastle** for Ed25519 key generation, signing, and verification.
 - Converts between **Perl-style 64-byte** and **Standard 32-byte** private keys.
 
-📌 **[View the Android module](#-ed25519fcc-for-android)**
+📌 **[View the Android module](#ed25519fcc-for-android)**
 
 ---
 
@@ -70,7 +70,7 @@ Ed25519FCC is a cryptographic library that provides **Ed25519 key management, si
 - Provides full Kotlin implementation for **Android applications**.
 - Uses BouncyCastle similar to Java for keypair generation and signing.
 
-📌 **[View the Kotlin module](#-ed25519fcc-for-kotlin)**
+📌 **[View the Kotlin module](#ed25519fcc-for-kotlin)**
 
 ---
 
@@ -78,7 +78,7 @@ Ed25519FCC is a cryptographic library that provides **Ed25519 key management, si
 - Implements **CryptoKit** for Ed25519 keypair management.
 - Wrapper around Apple's native Ed25519 functions.
 
-📌 **[View the iOS module](#-ed25519fcc-for-ios)**
+📌 **[View the iOS module](#ed25519fcc-for-ios)**
 
 ---
 
@@ -86,7 +86,7 @@ Ed25519FCC is a cryptographic library that provides **Ed25519 key management, si
 - Uses **TweetNaCl.js** for fast, efficient Ed25519 cryptography.
 - Supports **both Node.js and browser environments**.
 
-📌 **[View the JavaScript module](#-ed25519fcc-for-javascript)**
+📌 **[View the JavaScript module](#ed25519fcc-for-javascript)**
 
 ---
 
@@ -94,7 +94,7 @@ Ed25519FCC is a cryptographic library that provides **Ed25519 key management, si
 - Based on **PyNaCl (libsodium bindings)** for cryptographic operations.
 - Enables signing and verification for **Python Web3 apps**.
 
-📌 **[View the Python module](#-ed25519fcc-for-python)**
+📌 **[View the Python module](#ed25519fcc-for-python)**
 
 ---
 
@@ -102,7 +102,7 @@ Ed25519FCC is a cryptographic library that provides **Ed25519 key management, si
 - Uses **Go's built-in crypto/ed25519 package**.
 - Lightweight and efficient for blockchain and backend apps.
 
-📌 **[View the Go module](#-ed25519fcc-for-go)**
+📌 **[View the Go module](#ed25519fcc-for-go)**
 
 ---
 
@@ -110,7 +110,7 @@ Ed25519FCC is a cryptographic library that provides **Ed25519 key management, si
 - Uses **RustCrypto’s ed25519-dalek** for ultra-secure key handling.
 - Ideal for **blockchain development and high-performance systems**.
 
-📌 **[View the Rust module](#-ed25519fcc-for-rust)**
+📌 **[View the Rust module](#ed25519fcc-for-rust)**
 
 ---
 
@@ -118,13 +118,13 @@ Ed25519FCC is a cryptographic library that provides **Ed25519 key management, si
 - Built on **RbNaCl** (libsodium bindings for Ruby).
 - Enables signing and verifying messages for **Rails & Web3 apps**.
 
-📌 **[View the Ruby module](#-ed25519fcc-for-ruby)**
+📌 **[View the Ruby module](#ed25519fcc-for-ruby)**
 
 ---
 
 ### **🌐 OpenSSL**
 
-📌 **[View the OpenSSL module](#-ed25519fcc-for-openssl)**
+📌 **[View the OpenSSL module](#ed25519fcc-for-openssl)**
 
 ---
 
@@ -206,7 +206,7 @@ sub private_key_64 {
 ---
 
 
-# **📌 Ed25519FCC for Android**
+# **Ed25519FCC for Android**
 A wrapper for **Ed25519 cryptography** in Android using **BouncyCastle**, supporting **64-byte ⇄ 32-byte private key conversion**.
 
 ## Android Module
@@ -591,7 +591,7 @@ import Ed25519FCC
 
 ---
 
-## **Ed25519FCC for Javascript**
+# **Ed25519FCC for Javascript**
 A **JavaScript version** of your `Ed25519FCC` wrapper
 Compatible with both **Node.js and Browsers** using the **TweetNaCl.js** library.
 
@@ -1274,7 +1274,7 @@ puts "Signature Valid: #{valid}"
 ---
 
 
-# **📜 Ed25519FCC for OpenSSL**
+# **Ed25519FCC for OpenSSL**
 
 ### **📜 OpenSSL-Compatible Ed25519FCC Java Wrapper (Perl-Compatible)**
 ```java
