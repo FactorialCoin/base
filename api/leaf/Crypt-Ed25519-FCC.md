@@ -1,6 +1,34 @@
 ### **📌 Ed25519FCC: Multi-Language Ed25519 Wrapper**
 **A cross-platform cryptographic module for Ed25519 key generation, signing, and verification, supporting Perl-compatible 64-byte ⇄ 32-byte private key conversion.**
 
+Sure! Here's the **English version** of the Ed25519 support table, along with key observations.
+
+---
+
+## **🔍 Overview: Ed25519 Support by Programming Language & Module**
+| **Programming Language** | **Library/Module**                       | **Private Key Type**    | **Key Size** | **Notes** |
+|--------------------------|-----------------------------------------|------------------------|-------------|----------|
+| **Python**              | `pynacl` (libsodium), `cryptography`    | Standard              | 32 bytes    | Compatible with most languages |
+| **Rust**                | `ed25519-dalek`, `ring`                 | Standard              | 32 bytes    | High-performance, Web3-friendly |
+| **Go**                  | `crypto/ed25519`, `golang.org/x/crypto` | Standard              | 32 bytes    | Use `crypto/ed25519` for standard |
+| **Java**                | `BouncyCastle`, `Tink`                  | Standard              | 32 bytes    | Popular for Android & enterprise apps |
+| **Kotlin**              | `BouncyCastle`, `Tink`                  | Standard              | 32 bytes    | Same as Java |
+| **Node.js**             | `tweetnacl`, `libsodium`                | Standard              | 32 bytes    | Used in Web3 & blockchain applications |
+| **Swift (iOS)**         | `CryptoKit`                             | Standard              | 32 bytes    | Apple's native Ed25519 API |
+| **C/C++**               | `libsodium`, `ed25519-donna`            | Standard              | 32 bytes    | `libsodium` is the safest choice |
+| **C/C++ (alt)**         | `ref10`, `supercop`                     | Seed + PubKey         | 64 bytes    | **First 32 bytes are the private key** |
+| **Perl**                | `Crypt::Ed25519`                        | Split (4-bit format)  | 64 bytes    | **Requires conversion to 32-byte format** |
+| **PHP**                 | `sodium_crypto_sign_keypair()` (libsodium) | Standard          | 32 bytes    | Compatible with Python & Go |
+| **Ruby**                | `RbNaCl`, `Ed25519 gem`                 | Standard              | 32 bytes    | Wrapper around `libsodium` |
+| **Haskell**             | `Crypto.Sodium`                         | Seed + PubKey         | 64 bytes    | **First 32 bytes are the private key** |
+
+---
+
+## **📌 Key Observations**
+- **Most modern languages use the 32-byte standard private key format.**
+- **Perl (`Crypt::Ed25519`) uses a 64-byte 4-bit encoding**, requiring **conversion** to 32-byte format.
+- **Some older C implementations** (like `ref10` and `supercop`) store the **seed + public key in 64 bytes**, but the **first 32 bytes serve as the private key**.
+
 ---
 
 ## **📖 Table of Contents**
