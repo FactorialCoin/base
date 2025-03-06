@@ -21,7 +21,6 @@ A **universal cryptographic module** for **Ed25519 key management**, supporting 
   - [Ruby](#ruby)
   - [Haskell](#haskell)
   - [WebAssembly (WASM)](#webassembly-wasm)
-- [Conclusion](#conclusion)
 
 ---
 
@@ -43,6 +42,7 @@ This guide ensures **interoperability** between programming languages by providi
 ✅ **WebAssembly (WASM) allows browser & Web3 compatibility**.  
 ✅ **Older C implementations** (like `ref10` and `supercop`) store **seed + public key (64 bytes)**, where **only the first 32 bytes serve as the private key**.  
 ✅ **Interoperability across all platforms is possible with proper key conversions**.  
+🚀 **Ed25519FCC ensures cross-platform security and flexibility** for cryptographic signing and verification in **modern applications, blockchain wallets, and Web3 ecosystems**.
 
 ---
 
@@ -111,10 +111,6 @@ Each language example **generates a keypair** and **prints the private & public 
 #### **[Elixir Code](#elixir)**
 #### **[Zig Code](#zig)**
 #### **[WebAssembly Code (WASM)](#webassembly-wasm)**
-
----
-
-🚀 **Ed25519FCC ensures cross-platform security and flexibility** for cryptographic signing and verification in **modern applications, blockchain wallets, and Web3 ecosystems**.
 
 ---
 <a id="perl"></a>
