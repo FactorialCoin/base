@@ -2141,7 +2141,6 @@ class Program
 <a id="elixir"></a>
 ---
 
-```markdown
 # **Ed25519FCC for Elixir**
 
 A wrapper for **Ed25519 cryptography** in **Elixir** using `libsodium_ex` and `ed25519_ex`, supporting **key generation, signing, verification, and conversion between 64-byte Perl ⇄ 32-byte standard private keys**.
