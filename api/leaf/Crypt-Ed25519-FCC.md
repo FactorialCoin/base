@@ -25,7 +25,7 @@ A **universal cryptographic module** for **Ed25519 key management**, supporting 
 
 ---
 
-## **📌 Introduction**
+## **Introduction**
 Ed25519 is a **secure and high-performance elliptic-curve cryptographic algorithm** widely used for **digital signatures**. However, **different implementations use different private key formats**:
 - ✅ **Most modern languages use a 32-byte private key** (e.g., Python, Rust, Go).
 - ⚠️ **Perl (`Crypt::Ed25519`) and some C implementations use a 64-byte private key** that **requires conversion**.
@@ -37,7 +37,7 @@ This guide ensures **interoperability** between programming languages by providi
 
 ---
 
-## **📌 Key Insights**
+## **Key Insights**
 ✅ **Most modern programming languages use the standard 32-byte private key format**.  
 ✅ **Perl (`Crypt::Ed25519`) uses a 64-byte 4-bit encoding**, requiring **conversion to 32-byte format**.  
 ✅ **WebAssembly (WASM) allows browser & Web3 compatibility**.  
@@ -46,7 +46,7 @@ This guide ensures **interoperability** between programming languages by providi
 
 ---
 
-## **📌 Supported Languages & Platforms**
+## **Supported Languages & Platforms**
 | **Language**            | **Platform**           | **Library/Module**                      | **Private Key Format** | **Key Size** | **Notes** |
 |-------------------------|-----------------------|----------------------------------------|----------------------|-------------|-----------|
 | **Perl**                | Server, Security      | `Crypt::Ed25519`                       | Split (4-bit)        | 64 bytes    | **Requires conversion to 32 bytes** |
@@ -71,7 +71,7 @@ This guide ensures **interoperability** between programming languages by providi
 
 ---
 
-## **📌 Key Conversion (32-byte ⇄ 64-byte)**
+## **Key Conversion (32-byte ⇄ 64-byte)**
 ### Convert **64-byte Perl private key** to **32-byte Standard private key** (Python)
 ```python
 def private_key_32(perl_key_64):
@@ -89,7 +89,7 @@ def private_key_64(standard_key_32):
 
 ---
 
-## **📌 Code Implementations**
+## **Code Implementations**
 Each language example **generates a keypair** and **prints the private & public key in hex format**.
 
 #### **[Perl Code](#perl)**
@@ -98,25 +98,31 @@ Each language example **generates a keypair** and **prints the private & public 
 #### **[Go Code](#go)**
 #### **[Java Code](#java)**
 #### **[Kotlin Code](#kotlin)**
-#### **[Node.js Code](#nodejs-backend--browser)**
 #### **[Swift Code (iOS)](#swift-ios)**
 #### **[C/C++ Code](#cc)**
+#### **[C/C++ (Alternative) Code](#cc-alternative)**
 #### **[PHP Code](#php)**
 #### **[Ruby Code](#ruby)**
 #### **[Haskell Code](#haskell)**
-#### **[WebAssembly Code](#webassembly-wasm)**
+#### **[Node.js Code (Backend)](#nodejs-backend)**
+#### **[JavaScript Code (Frontend)](#javascript-frontend)**
+#### **[TypeScript Code](#typescript)**
+#### **[C# (.NET) Code](#csharp-dotnet)**
+#### **[Elixir Code](#elixir)**
+#### **[Zig Code](#zig)**
+#### **[WebAssembly Code (WASM)](#webassembly-wasm)**
 
 ---
 
-## **📌 Conclusion**
 🚀 **Ed25519FCC ensures cross-platform security and flexibility** for cryptographic signing and verification in **modern applications, blockchain wallets, and Web3 ecosystems**.
 
-
 ---
+<a id="perl"></a>
 ---
 
-# **Ed25519RFC For Perl (`Crypt::Ed25519::RFC`)
+# **Ed25519FCC For Perl**
 A Perl module for Ed25519 key generation, signing, and verification, supporting 64-byte ⇄ 32-byte private key conversion while ensuring full compatibility with other cryptographic libraries. Unlike other language implementations, this module operates in reverse: it works with the 32-byte standard private key externally, whereas other languages handle the 64-byte Perl private key format. Since Perl natively manages the 4-bit encoded 64-byte private key, this module converts it internally for seamless interoperability.
+
 ---
 
 ## **🔍 Features**
@@ -134,7 +140,7 @@ A Perl module for Ed25519 key generation, signing, and verification, supporting 
 ## **📌 Perl Ed25519 Module Implementation**
 
 ```perl
-package Crypt::Ed25519::RFC;
+package Crypt::Ed25519::FCC;
 
 use strict;
 use warnings;
@@ -221,7 +227,7 @@ sub verify_signature {
 ## **📌 Example Usage in Perl**
 
 ```perl
-use Crypt::Ed25519::RFC qw(generate_keypair sign_message verify_signature);
+use Crypt::Ed25519::FCC qw(generate_keypair sign_message verify_signature);
 use strict;
 use warnings;
 
@@ -254,6 +260,7 @@ cpan Digest::SHA
 ```
 
 ---
+<a id="python"></a>
 ---
 
 # **🐍 Ed25519FCC for Python**
@@ -371,6 +378,7 @@ print("Signature Valid:", is_valid)
    ```
 
 ---
+<a id="rust"></a>
 ---
 
 
@@ -513,6 +521,7 @@ fn main() {
 ```
 
 ---
+<a id="go"></a>
 ---
 
 # **🐹 Ed25519FCC for Go**
@@ -682,6 +691,7 @@ func main() {
 ```
 
 ---
+<a id="java"></a>
 ---
 
 
@@ -814,6 +824,7 @@ dependencies {
 ```
 
 ---
+<a id="kotlin"></a>
 ---
 
 
@@ -950,6 +961,7 @@ import nl.factorialcoin.Ed25519FCC.Ed25519FCC
 
 
 ---
+<a id="swift-ios"></a>
 ---
 
 
@@ -1075,6 +1087,7 @@ You can install **Swift-Sodium (Libsodium bindings)** using **CocoaPods** or **S
 3. Select the latest stable version and **add it to your project**.
 
 ---
+<a id="cc"></a>
 ---
 
 
@@ -1225,6 +1238,7 @@ int main() {
 ```
 
 ---
+<a id="cc-alternative"></a>
 ---
 
 ## Ed25519FCC for C/C++ (Alternative: ref10, supercop)
@@ -1326,6 +1340,7 @@ gcc -o ed25519_ref10 ed25519_ref10.c -lsodium
 ```
 
 ---
+<a id="php"></a>
 ---
 
 # PHP Ed25519FCC Module (Libsodium)
@@ -1430,6 +1445,7 @@ echo "Signature Valid: " . ($isValid ? "true" : "false") . "\n";
 ```
 
 ---
+<a id="ruby"></a>
 ---
 
 
@@ -1549,6 +1565,7 @@ puts "Signature Valid: #{valid}"
 ```
 
 ---
+<a id="haskell"></a>
 ---
 
 # Ed25519FCC for Haskell
@@ -1675,6 +1692,7 @@ main = do
 
 
 ---
+<a id="nodejs-backend"></a>
 ---
 
 # **🌍 Ed25519FCC for JavaScript (Node.js & Browser)**  
@@ -1771,6 +1789,8 @@ console.log("Signature Valid:", isValid);
 ```
 
 ---
+<a id="javascript-frontend"></a>
+---
 
 ## **🌐 Ed25519FCC for Browser**
 The **browser version** works the same way, but uses **TweetNaCl.js** from a **CDN**.
@@ -1850,6 +1870,7 @@ class Ed25519FCC {
 ```
 
 ---
+<a id="typescript"></a>
 ---
 
 # Ed25519FCC for TypeScript
@@ -1993,6 +2014,7 @@ ts-node test.ts
 ```
 
 ---
+<a id="csharp-dotnet"></a>
 ---
 
 # Ed25519FCC for C# (.NET)
@@ -2120,6 +2142,7 @@ class Program
 ```
 
 ---
+<a id="elixir"></a>
 ---
 
 ```markdown
@@ -2226,6 +2249,7 @@ IO.puts("Signature Valid: #{is_valid}")
 ```
 
 ---
+<a id="zig"></a>
 ---
 
 # Ed25519FCC for Zig
@@ -2342,6 +2366,7 @@ zig build-exe main.zig
 ```
 
 ---
+<a id="webassembly-wasm"></a>
 ---
 
 # Ed25519FCC for WebAssembly (WASM)
