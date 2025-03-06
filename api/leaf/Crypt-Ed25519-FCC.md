@@ -14,12 +14,17 @@ A **universal cryptographic module** for **Ed25519 key management**, supporting 
   - [Go](#go)
   - [Java](#java)
   - [Kotlin](#kotlin)
-  - [Node.js (Backend & Browser)](#nodejs-backend--browser)
   - [Swift (iOS)](#swift-ios)
   - [C/C++](#cc)
+  - [C/C++ Alternative](#cc-alternative)
   - [PHP](#php)
   - [Ruby](#ruby)
   - [Haskell](#haskell)
+  - [Node.js (Backend)](#nodejs-backend--browser)
+  - [Javascript (Browser)](#javascript-frontend)
+  - [C# (.NET)](#csharp-dotnet)
+  - [Elixir](#elixir)
+  - [Zig](#zig)
   - [WebAssembly (WASM)](#webassembly-wasm)
 
 ---
