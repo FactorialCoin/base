@@ -18,7 +18,7 @@ use vars qw($VERSION @ISA @EXPORT @EXPORT_OK);
 $VERSION     = '2.3.2';
 @ISA         = qw(Exporter);
 @EXPORT      = qw($COIN $HP setcoin $FCCVERSION $FCCBUILD $FCCEXT $FCCTIME $FCCMAGIC $FCCSERVERKEY $TRANSTYPES $RTRANSTYPES
-                  $MINIMUMFEE $MINERPAYOUT $MINEBONUS $FCCSERVERIP $FCCSERVERPORT ledgerversion
+                  $MINIMUMFEE $MINERPAYOUT $MINEBONUS $FCCSERVERIP $FCCSERVERHOST $FCCSERVERPORT ledgerversion
                   prtm securehash octhex hexoct hexchar dechex hexdec validh64 encode_base64 decode_base64 rsp
                   fcctime setfcctime fcctimestring extdec doggy calcfee doggyfee fccstring fccencode zb64 b64z zip unzip);
 @EXPORT_OK   = qw();
@@ -35,7 +35,8 @@ our $FCCVERSION = "0101"; # ledger version
 our $FCCBUILD = $VERSION;   # software version
 our $FCCTIME = tzoffset();
 our $FCCMAGIC = 'FF2F89B12F9A29CAB2E2567A7E1B8A27C8FA9BF7A1ABE76FABA7919FC6B6FF0F';
-our $FCCSERVERIP = '149.210.194.88';
+our $FCCSERVERIP = '149.210.194.88'; # factorialcoin.nl
+our $FCCSERVERHOST = 'factorialcoin.nl'; # 
 our $FCCSERVERPORT = 5151;
 our $FCCSERVERKEY = "FCC55202FF7F3AAC9A85E22E6990C5ABA8EFBB73052F6EA1867AF7B96AE23FCC";
 our $FCCEXT = '.fcc';
@@ -66,6 +67,13 @@ sub setcoin {
     $FCCEXT = '.pttp';
     $FCCBUILD = '1.4.2';
     $MINIMUMFEE = 110;
+  } elsif ($COIN eq 'FCC') {
+    $FCCMAGIC = "FF2F89B12F9A29CAB2E2567A7E1B8A27C8FA9BF7A1ABE76FABA7919FC6B6FF0F";
+    $FCCSERVERPORT = 5151;
+    $FCCSERVERKEY = "FCC55202FF7F3AAC9A85E22E6990C5ABA8EFBB73052F6EA1867AF7B96AE23FCC";
+    $FCCEXT = '.fcc';
+    $FCCBUILD = $VERSION;
+    $MINIMUMFEE = 50;
   } elsif ($COIN ne 'FCC') {
     die "Unknown coin '$_[0]'"
   }

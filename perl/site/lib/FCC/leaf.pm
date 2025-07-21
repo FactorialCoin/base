@@ -55,7 +55,7 @@ sub startleaf {
   $FCCFUNCTION='leaf'; if ($miner) { $FCCFUNCTION='miner' }
   $LEAFID++;
   my $leaf=gclient::websocket($host,$port,$active,\&handle_leaf);
-  if ($leaf->{error}) { print "\nError connecting $FCCFUNCTION: $leaf->{error}\n\n"; return $leaf }
+  if ($leaf->{error}) { print STDOUT "\nError connecting $FCCFUNCTION: $leaf->{error}\n\n"; return $leaf }
   $leaf->{connected}=0;
   $leaf->{leafcaller}=$caller;
   $leaf->{passive}=1;
@@ -84,26 +84,26 @@ sub handle_leaf {
   my $func=$leaf->{leafcaller};
   if (!$func) { $func=$CALLER }
   if ($DEBUG && ($command ne 'loop')) {
-    print " < [LEAF]: $command - $data\n";
+    print STDOUT " < [LEAF]: $command - $data\n";
   }
   if ($command eq 'loop') {
   } elsif ($command eq 'input') {
     handleinput($leaf,$data)
   } elsif ($command eq 'error') {
     gclient::wsquit($leaf);
-    print "Leaf exited with error: $data\n\n";
+    print STDOUT "Leaf exited with error: $data\n\n";
     &$func($leaf,'disconnect',{ error => $data });
   } elsif ($command eq 'quit') {
-    print "Lost connection to node: $data\n\n";
+    print STDOUT "Lost connection to node: $data\n\n";
     &$func($leaf,'disconnect',{ error => $data });
   } elsif ($command eq 'close') {
-    print "Lost connection to node: $data\n\n";
+    print STDOUT "Lost connection to node: $data\n\n";
     &$func($leaf,'disconnect',{ error => $data });
   } elsif ($command eq 'connect') {
     my ($tm,$ip) = split(/ /,$data);
     $leaf->{connected}=1;
     if ($DEBUG) {
-      print prtm()."Connected as $leaf->{fccfunction} v$VERS at $leaf->{localip} to $ip\n"
+      print STDOUT prtm()."Connected as $leaf->{fccfunction} v$VERS at $leaf->{localip} to $ip\n"
     }
   }
 }
@@ -134,7 +134,7 @@ sub leafloop {
 
 sub closeleaf {
   my ($leaf,$msg) = @_;
-  print " !! Closing leaf $leaf->{host}:$leaf->{port}\n";
+  print STDOUT " !! Closing leaf $leaf->{host}:$leaf->{port}\n";
   if (!$msg) { $msg='Closed' }
   my $func=$leaf->{leafcaller};
   &$func($leaf,'terminated', { message => $msg });
@@ -194,20 +194,33 @@ sub handleinput {
   my $cmd=$k->{command};
   my $func=$leaf->{leafcaller};
   if ($k->{error}) {
-    &$func($leaf,'error',{ command => 'error', message => $cmd, error => $k->{error} });
+    &$func($leaf,'error',{ command => 'error', message => $cmd, error => $k->{error}, available=>$k->{available}, spendable=>$k->{spendable} });
     return
   }
   my $proc="c_$cmd";
   if (defined &$proc) {
     &$proc($leaf,$k)
   } else {
-    print "Illegal command sent to leaf: $cmd\n"
+    if (defined $::ILLEGAL_CALLBACK && ref($::ILLEGAL_CALLBACK) eq 'CODE') {
+      &$::ILLEGAL_CALLBACK($data);
+    } else {
+      print STDOUT "Illegal command sent to leaf: [$cmd]\n"
+    }
+  }
+}
+
+sub c_wrong {
+  my ($leaf,$data) = @_;
+  if (defined $::WRONG_CALLBACK && ref($::WRONG_CALLBACK) eq 'CODE') {
+    &$::WRONG_CALLBACK($data);
+  } else {
+    print STDOUT "Wrong Solution Send: $data\n"
   }
 }
 
 sub c_error {
   my ($leaf,$k) = @_;
-  print "Error: $k->{message}\n";
+  print STDOUT "Error: $k->{message}\n";
   outnode($leaf,{ command => 'quit' });
   gclient::quit($leaf);
   exit

@@ -17,12 +17,12 @@ use vars qw($VERSION @ISA @EXPORT @EXPORT_OK);
 
 $VERSION     = '2.2.1';
 @ISA         = qw(Exporter);
-@EXPORT      = qw(dbadd dbdel dbget dbsave dbload dbprint delcache);
+@EXPORT      = qw(dbadd dbdel dbget dbsave dbload dbprint dblist delcache);
 @EXPORT_OK   = qw();
 
 use gfio 1.10;
 use gerr;
-use FCC::global 2.3.1;
+use FCC::global 2.2.1;
 use FCC::wallet 2.1.4;
 
 my $HP = {}; for (my $i=0;$i<10;$i++) { $HP->{$i}=$i }
@@ -311,11 +311,31 @@ sub dbprint {
         $tot+=dbprint($db->[$i],$sp.$hv)
       } else {
         print $sp; print $hv; $tot++;
-        print "=".$db->[$i]."\n"
+        print "=".ord($db->[$i])."\n"
       }
     }
   }
   return $tot
+}
+
+sub dblist {
+  my ($db,$sp,$list) = @_;
+  my $tot=0;
+  if (!$list) { $list=[] }
+  if (!$sp) { $sp='' }
+  for (my $i=0;$i<16;$i++) {
+    if (defined $db->[$i]) {
+      my $hv=(0,1,2,3,4,5,6,7,8,9,'A','B','C','D','E','F')[$i];
+      if (ref($db->[$i])) {
+        my ($t,$l)=dblist($db->[$i],$sp.$hv,$list);
+        $tot+=$t;
+        $list=$l;
+      } else {
+        $tot++; push @{$list}, $sp.$hv."=".ord($db->[$i])
+      }
+    }
+  }
+  return ($tot,$list)
 }
 
 sub dbsaveblock {
