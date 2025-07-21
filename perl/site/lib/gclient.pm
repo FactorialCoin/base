@@ -6,7 +6,7 @@ package gclient;
 #                                                                    #
 #          TCP/IP client                                             #
 #           - raw, telnet, HTTP/1.1, WebSockets, IceCast2            #
-#           - SSL support                                            #
+#           - SSL & SSKE support                                     #
 #           - fully bidirectional non-blocking, all systems          #
 #           - http reader supports chunked, gzip, auto redirect      #
 #           - RSS compatible                                         #
@@ -22,6 +22,7 @@ package gclient;
 #  ---------- ------------------------------------------------------ #
 #  error      error message                                          #
 #  init       called before connect, init variables                  #
+#  verboseheader  debug HTTP headers                                 #
 #  connect    connection established, you may read and write now     #
 #  input      raw byte input received                                #
 #  noinput    no input received after read attempt                   #
@@ -57,38 +58,42 @@ package gclient;
 ######################################################################
 
 use strict;
-use warnings;
+no strict 'refs';
+use warnings; no warnings qw<uninitialized>;
 use Socket;
 use utf8;
-use gfio;
 use gerr qw(error);
 use IO::Handle;
 use IO::Select;
 use IO::Socket;
 use IO::Socket::INET;
 use IO::Socket::SSL;
-use Digest::SHA qw(sha256_hex);
+use Crypt::Ed25519;
+use Digest::SHA qw(sha256 sha256_hex sha512);
 use URL::Encode qw(url_encode_utf8);
 use MIME::QuotedPrint;
 use Exporter;
 use Time::HiRes qw(gettimeofday usleep);
 use Digest::SHA1 qw(sha1);
+use Compress::Bzip2 qw(bzinflateInit);
 use Compress::Raw::Zlib;
-use Compress::Bzip2;
+use Compress::Zlib;
 use vars qw($VERSION @ISA @EXPORT @EXPORT_OK);
+use gparse;
 
-$VERSION     = '8.1.2';
+$VERSION     = '9.1.4';
 @ISA         = qw(Exporter);
-@EXPORT      = qw(out websocket tcpip http wsmsg wsquit wsinput localip telnet website icecast2 icecast2_metadata);
-@EXPORT_OK   = qw(openconnection in spliturl encode_base64);
+@EXPORT      = qw(out websocket tcpip http wsmsg wsquit wsinput localip telnet website icecast2 icecast2_metadata cpu32);
+@EXPORT_OK   = qw(openconnection in spliturl querydata encode_base64);
 
 my $TELNET=telnet_init();
+my $cpu32 = (~0 == 4294967295);
 
 1;
 
 sub openconnection {
   # Opens a RAW binary non-blocking bi-directional connection, timeout in seconds.
-  my ($host,$port,$linemode,$timeout,$ssl,$connectcallback) = @_;
+  my ($host,$port,$linemode,$timeout,$ssl,$connectcallback,$sni) = @_;
   my $self = {}; bless $self;
   if (!$linemode) { $linemode=0 }
   if (!$timeout) { $timeout=10 }
@@ -127,6 +132,7 @@ sub openconnection {
   $self->{waitforinput}=1;
   $self->{connectcallback}=$connectcallback;
   $self->{lastconnect}=gettimeofday();
+  $self->{readbufsize}=16384*16;
 
   # Connect to server
   my $proto = (getprotobyname('tcp'))[2];
@@ -138,7 +144,22 @@ sub openconnection {
     $self->{error}="Unable to resolve IP"; return $self
   } elsif ($ssl) {
     my $sslerr=0;
-    $self->{socket}=IO::Socket::SSL->new($self->{host}.":".$self->{port}) or $sslerr=1;
+    if ($sni) {
+      $self->{socket}=IO::Socket::SSL->new(
+        PeerHost => $self->{host},
+        PeerPort => $self->{port},
+        SSL_verify_mode => SSL_VERIFY_PEER,
+        SSL_verifycn_name => $sni,
+        SSL_verifycn_scheme => 'http',
+        SSL_hostname => $sni
+      ) or $sslerr=1;
+    } else {
+      $self->{socket}=IO::Socket::SSL->new(
+        PeerHost => $self->{host},
+        PeerPort => $self->{port},
+        SSL_verify_mode => SSL_VERIFY_PEER
+      ) or $sslerr=1;
+    }
     if ($sslerr) { $self->{error}=$SSL_ERROR; return $self }
     $sock=$self->{socket};
     select($sock); $|=1; select(STDOUT);
@@ -151,10 +172,11 @@ sub openconnection {
     #select($self->{socket}); 
     binmode($sock); 
 
-    setsockopt($sock,SOL_SOCKET, SO_RCVTIMEO, 3);
+    setsockopt($sock,SOL_SOCKET, SO_RCVTIMEO, 15);
+    setsockopt($sock,SOL_SOCKET, SO_SNDTIMEO, 15);
   } else {
     $self->{socket}=undef;
-    socket($sock, PF_INET, SOCK_STREAM, $proto) or $err="Cannot create socket on [$host:$port]: $!";
+    socket($sock, AF_INET, SOCK_STREAM, $proto) or $err="Cannot create socket on [$host:$port]: $!";
     if ($err) { $self->{error}=$err; return $self }  
 
     select($sock); $|=1; select(STDOUT);
@@ -167,14 +189,25 @@ sub openconnection {
     #select($self->{socket}); 
     binmode($sock); 
 
-    setsockopt($sock,SOL_SOCKET, SO_RCVTIMEO, 3);
+    setsockopt($sock,SOL_SOCKET, SO_RCVTIMEO, 15);
+    setsockopt($sock,SOL_SOCKET, SO_SNDTIMEO, 15);
 
     my $paddr = sockaddr_in($self->{port}, $iaddr);
 
     vec($self->{servervec}, fileno($sock), 1) = 1;
     select(undef, $self->{servervec}, undef, $self->{connectlooptime});
     my $vec=vec($self->{servervec}, fileno($sock), 1);
-    connect($sock, $paddr) or $err="Could not connect to server [$host:$port]: $! ".(0+$!);
+    if(!connect($sock, $paddr)){
+      if ($!{EINPROGRESS}) {
+        my $select = IO::Select->new($sock);
+        my @ready = $select->can_write($self->{timeout});
+        if (!@ready) {
+          $err = "Connection timeout or error $! ".(0+$!);
+        }
+      } else {
+        $err = "Could not connect to server [$host:$port]: $! ".(0+$!);
+      }
+    }
     select(STDOUT); $|=1;
     if ($err) {
       if (($err !~ /\s140$/) && ($err !~ /\s115$/)) {
@@ -194,7 +227,7 @@ sub openconnection {
   }
 
   # Set output to console
-  select(STDOUT); binmode(STDOUT); $|=1;
+  select(STDOUT); if ($::GCLIENT_UTF8) { binmode STDOUT, ":encoding(UTF-8)" } else { binmode STDOUT }; $|=1;
 
   # selectors are used to poll the pipe if we can read/write, so we don't flood an never waste any time.
   $self->{selector}=IO::Select->new($sock);
@@ -231,7 +264,7 @@ sub connectready {
 
 sub dummycaller {
   my ($client,$cmd,$data) = @_;
-}  
+}
 
 sub canread {
   my ($self) = @_;
@@ -275,15 +308,15 @@ sub readsocket {
   my $buf="";
   if ($self->canread()) {
     if ($self->{ssl}) {
-      sysread($sock,$buf,16384)
+      sysread($sock,$buf,$self->{readbufsize})
     } else {
-      recv($sock,$buf,16384,0)
+      recv($sock,$buf,$self->{readbufsize},0)
     }
-    #print "READ: $buf\n";
+    if ($self->{debug}) { print STDOUT print "READ: $buf\n" }
     if ($buf eq "") {
       my $err = $! + 0;
       if ($err) {
-        #print "ERR $err\n";
+        if ($self->{debug}) { print STDOUT print "ERR $err\n" }
         if (($! != 11) && ($! != 16)) { # EAGAIN EBUSY
           if ($err == 10035) {
             # 10035 = WSAEWOULDBLOCK (Windows sucking non-blocking sockets)
@@ -307,10 +340,23 @@ sub readsocket {
         push @{$self->{buffer}},$self->{curline};
         $self->{curline}="";
       } elsif (!$func) {
-        &$caller($self,'noinput')
+        &$caller($self,'noinput');
+      } elsif ($self->{lastconnect}) {
+        my $tmo=int(gettimeofday() - $self->{lastconnect});
+        if ($self->{debug}) { print STDOUT print "\r$tmo" }
+        if ($tmo > 10) {
+          if (!defined $self->{waitingloop}){ $self->{waitingloop}=0 }
+          $self->{waitingloop}++;
+          if($self->{waitingloop}>10000) {
+            &$caller($self,'error',"Connection Timeout!");
+            $self->{error}="Connection Timeout!"; $self->quit; return
+          }
+        }
+      } else {
+        $self->{lastconnect}=gettimeofday()
       }
     } else {
-      if ($self->{debug}) { print STDOUT "[INPUT] '$buf' " }
+      if ($self->{debug}) { print STDOUT "[INPUT-buffer]\n$buf\n[end-INPUT]\n" }
       if (!$self->{linemode}) {
         $self->{dataready}=1;
         $self->{curline}.=$buf
@@ -372,6 +418,7 @@ sub out {
   }
   if (!defined $data) { return }
   if (!length($data)) { return }
+  if (ref($self->{sske}) eq 'HASH' && $self->{sskeactive}) { $data=$self->crypt($data,1) }
   if ($self->{linemode}) {
     $self->{output}=1;
     foreach my $line (split (/\n/,$data)) {
@@ -424,7 +471,7 @@ sub outloop {
     } elsif ($self->{outputpointer}<$self->{outputlength}) {
       if ($self->{outputlength}-$self->{outputpointer}<$sz) { $sz=$self->{outputlength}-$self->{outputpointer} }
       my $data=substr($self->{outputbuffer},$self->{outputpointer},$sz);
-      # print " >> $self->{host} $sz\n";
+      if ($self->{debug}) { print STDOUT " >> $self->{host} $sz\n" }
       if ($self->{ssl}) {
         syswrite($sock,$data,length($data))
       } else {
@@ -493,12 +540,12 @@ sub tcpipconnected {
 }
 
 sub tcpip {
-  my ($host,$port,$loopmode,$caller,$ssl,$linemode,$timeout,$connectcallback) = @_;
+  my ($host,$port,$loopmode,$caller,$ssl,$linemode,$timeout,$connectcallback,$sni) = @_;
   if (ref($caller) ne 'CODE') { error "GClient.tcpip: Caller is not a procedure-reference" }
   if (!defined $connectcallback || !$connectcallback || (ref($connectcallback) ne 'CODE')) {
     $connectcallback=\&tcpipconnected
   }  
-  my $self=openconnection($host,$port,$linemode,$timeout,$ssl,$connectcallback);
+  my $self=openconnection($host,$port,$linemode,$timeout,$ssl,$connectcallback,$sni);
   $self->{caller}=$caller;
   if ($self->{error}) { &$caller($self,"quit",$self->{error}); $self->quit; return $self }
   if ($loopmode) { $self->{loopmode}=1 }
@@ -515,13 +562,13 @@ sub tcpip {
 
 sub telnet {
   # RFC 854 & 855
-  my ($host,$port,$loopmode,$caller,$timeout,$ssl) = @_;
+  my ($host,$port,$loopmode,$caller,$timeout,$ssl,$sni) = @_;
   if (ref($caller) ne 'CODE') { error "GClient.telnet: Caller is not a procedure-reference" }
   if (!$port) { 
     $port=23;
     if ($ssl) { $port=1337 } # as used by stunnel, ssl on telnet is arbitrary
   }
-  my $self=openconnection($host,$port,$loopmode,$timeout,$ssl,\&tcpipconnected);
+  my $self=openconnection($host,$port,$loopmode,$timeout,$ssl,\&tcpipconnected,$sni);
   $self->{protocol}='telnet'; $self->{telnet}=1;
   $self->{usercaller}=$caller;
   $self->{caller}=\&handle_telnet;
@@ -598,26 +645,37 @@ sub http {
   # ZLIB RFC 1950, DEFLATE RFC 1951, GZIP RFC 1952
   # Chunked data encoding RFC 2616 3.6.1
   # RFC 2616 14.23 HTTP/1.1 requires request Host 
-  my ($host,$port,$loopmode,$caller,$timeout,$ssl,$path,$query,$user,$pass) = @_;
+  my ($host,$port,$loopmode,$caller,$timeout,$ssl,$sni,$sske,$path,$query,$user,$pass) = @_;
   if (ref($caller) ne 'CODE') { error "GClient.http: Caller is not a procedure-reference" }
-  if (!$port) { 
-    $port=80; if ($ssl) { $port=443 }
-  }
-  my $self=openconnection($host,$port,0,$timeout,$ssl,\&tcpipconnected);
-  $self->{protocol}='http'; $self->{http}=1;
+  if (!$port) { $port=($ssl ? 443:80) }
   if ($path && (substr($path,0,1) ne '/')) { $path='/'.$path }
+  my $self=openconnection($host,$port,0,$timeout,$ssl,\&tcpipconnected,$sni);
   $self->{path}=$path; $self->{query}=$query;
-  $self->{usercaller}=$caller;
+  $self->{protocol}='http'; $self->{http}=1;
+  $self->{usercaller}=$caller; $self->{sskeround}=1;
   $self->{caller}=\&handle_http;
   if ($self->{error}) { &$caller($self,"quit",$self->{error}); $self->quit; return $self }
   if ($loopmode) { $self->{loopmode}=1 }
   $self->{httpinfo} = {
-    request => "", header => {}, postdata => [], wantpost => 0,
+    request => "", header => {}, postdata => "", wantpost => 0,
     user => $user, pass => $pass,
     response => "", rescode => 0, readhead => 1, reshead => {}, wanted => 0,
     website => "", chunked => 0, chunkmode => 0, chunkhex => "", chunkext => "",
     chunkdata => "", chunksize => 0, encoding => "", trailer => {}
   };
+  $self->{sskeactive}=0;
+  if ($sske) {
+    $self->{sske} = {
+      symkey => createkey(),
+      symfunc => createkey(),
+      transkey => createkey(),
+      transfunc => createkey()
+    };
+    $self->{httpinfo}{header}{'Symmetric-Key'}=octhex(scramblekey($self->{sske}{symkey},$self->{sske}{transkey},$self->{sske}{transfunc}));
+    $self->{httpinfo}{header}{'Symmetric-Function'}=octhex(scramblekey($self->{sske}{symfunc},$self->{sske}{transkey},$self->{sske}{transfunc}));
+  } else {
+    $self->{sskeround} = 9
+  }
   # parameters one can change on init event
   $self->{noredirect}=0;
   &$caller($self,'init',gettimeofday());
@@ -629,17 +687,35 @@ sub http {
 
 sub handle_http {
   my ($self,$command,$data) = @_;
-  # if ($command ne 'loop') { print "#### $command - $data\n" }
+  if ($self->{debug} && $command ne 'loop') { print STDOUT "#### $command - $data\n" }
   my $caller=$self->{usercaller};
   if ($command eq 'error') {
     &$caller($self,'error',$data)
   } elsif ($command eq 'connect') {
-    &$caller($self,'connected',$data);
-    if (!$self->{norequest}) {
-      &$caller($self,'request')
+    if (ref($self->{sske}) ne 'HASH' || ($self->{sskeround} == 1)) {
+      &$caller($self,'connected',$data)
     }
-    if (!$self->{httpinfo}{request}) {
-      $self->{httpinfo}{request}="GET / HTTP/1.1"
+    if (!$self->{httpinfo}{request} || (ref($self->{sske}) eq 'HASH' && ($self->{sskeround} == 1))) {
+      $self->{httpinfo}{request}="GET / HTTP/1.1";
+      $self->{httpinfo}{wantpost}=0;
+      if ($self->{debug}) { print STDOUT "[SET-REQUEST][$self->{httpinfo}{request}]\n" }
+    }
+    if (!$self->{norequest} && (ref($self->{sske}) ne 'HASH' || ($self->{sskeround} > 1))) {
+      #if (!$self->{path} && !$self->{query}) {
+      &$caller($self,'request');
+      #} else {
+      #  my $rfunc=$self->{reqmeth}||'';
+      #  if ($rfunc && defined &$rfunc) {
+      #    &$rfunc($self,$self->{path},$self->{query})
+      #  } else {
+      #    &$caller($self,'error',"Invalid request method: $rfunc")
+      #  }
+      #}
+      if ($self->{debug}) { print STDOUT "[SET-REQUEST][$self->{httpinfo}{request}]\n" }
+      if ($self->{httpinfo}{wantpost}) {
+        $self->boundary();
+        &$caller($self,'post')
+      }
     }
     # store request to detect cyclic redirect loops
     my $hist={ host => $self->{host}, port => $self->{port} };
@@ -648,22 +724,21 @@ sub handle_http {
     } else {
       $self->{history} = [ $hist ]
     }
-    if (!$self->{norequest}) {
+    if (!$self->{norequest} && (ref($self->{sske}) ne 'HASH' || ($self->{sskeround} > 1))) {
       &$caller($self,'header')
     }
-    if (!$self->{httpinfo}{header}{Host}) {
+    if (!$self->{httpinfo}{header}{Host} && (!ref($self->{sske}) || ($self->{sskeround} == 1))) {
       # host required in HTTP/1.1
-      $self->{httpinfo}{header}{Host}=$self->{host}.":".$self->{port};
+      $self->{httpinfo}{header}{Host}=$self->{host};
     }
-    if ($self->{httpinfo}{user} && $self->{httpinfo}{pass}) {
-      $self->auth(undef,$self->{httpinfo}{user},$self->{httpinfo}{pass})
-    } elsif ($self->{httpinfo}{pass}) {
-      $self->auth('bearer',undef,$self->{httpinfo}{pass})
+    if ($self->{sskeround} > 1) {
+      if ($self->{httpinfo}{user} && $self->{httpinfo}{pass}) {
+        $self->auth(undef,$self->{httpinfo}{user},$self->{httpinfo}{pass})
+      } elsif ($self->{httpinfo}{pass}) {
+        $self->auth('bearer',undef,$self->{httpinfo}{pass})
+      }
     }
-    if ($self->{httpinfo}{wantpost} && !$self->{norequest}) {
-      $self->boundary();
-      &$caller($self,'post');      
-    }
+    if ($self->{debug}) { print STDOUT "[handle_http]".gparse::str($self)."\n" }
     $self->sendheader()
   } elsif ($command eq 'input') {
     if ($self->{httpinfo}{chunkmode}) {
@@ -680,6 +755,14 @@ sub handle_http {
       } elsif ($line eq "") { 
         $self->{httpinfo}{readhead}=0;
         $self->correctheader();
+        $self->handlesske();
+        if ($self->{verboseheader}) {
+          my @out=("[HEADER IN]");
+          for my $k (sort keys %{$self->{httpinfo}{reshead}}) {
+            push @out,"$k => ".$self->{httpinfo}{reshead}{$k}
+          }
+          print STDOUT join("\n",@out)."\n"
+        }
         $data=join("\r\n",@sl);
       } else {
         my ($key,@val) = split(/\:/,$line);
@@ -726,13 +809,18 @@ sub handle_http {
 
 sub readchunks {
   my ($self,$data) = @_;
+  my $dt=$data; $dt =~ s/\r/\\r/gs; $dt =~ s/\n/\\n/gs;
   $self->{httpinfo}{chunkdata}.=$data;
   $data=$self->{httpinfo}{chunkdata};
   do {
     if ($self->{httpinfo}{chunkmode} == 1) {
       # read chunk (hexsize*[;ext[=val]]CRLF)
-      if ($data =~ /^\r\n/) {
+      if ($data =~ /^\r\n0[\r\n]*/) {
         $self->http_analyse(); return
+      }
+      if ($data =~ /^\r\n/) {
+        my ($dump,@rest) = split(/\r\n/,$data,-1);
+        $data=join("\r\n",@rest);
       }
       if ($data =~ /\r\n/) {
         my ($chunk,@rest) = split(/\r\n/,$data);
@@ -766,8 +854,12 @@ sub readchunks {
           return
         }
       } else {
-        if ($data =~ /^\r\n/) {
+        if ($data =~ /^\r\n0[\r\n]*/) {
           $self->http_analyse(); return
+        }
+        if ($data =~ /^\r\n/) {
+          my ($dump,@rest) = split(/\r\n/,$data,-1);
+          $data=join("\r\n",@rest);
         }
         if ($self->{httpinfo}{trailer}) {
           $self->{httpinfo}{chunkmode}=3;
@@ -801,7 +893,7 @@ sub boundary {
   my ($self) = @_;
   if ($self->{boundary}) { return }
   my $seed=int (rand(100000000)+12345678); $seed.="Domero";
-  foreach my $k ($self->{httpinfo}{header}) {
+  foreach my $k (keys %{$self->{httpinfo}{header}}) {
     $seed.=$k.$self->{httpinfo}{header}{$k}
   }
   $self->{boundary}=substr(sha256_hex($seed),10,20);
@@ -819,6 +911,14 @@ sub posturl {
   $self->{httpinfo}{postdata}=$post;
   $self->sethdr("Content-Length",length($self->{httpinfo}{postdata}));
 }
+
+sub postjson {
+  my ($self) = @_;
+  $self->sethdr("Content-Type","application/json");
+  $self->{httpinfo}{postdata}=JSON->new->allow_blessed->convert_blessed->utf8->canonical->pretty->encode($self->{query});
+  $self->sethdr("Content-Length",length($self->{httpinfo}{postdata}));
+}
+
 sub postfile {
   my ($self,$type,$data,$encode) = @_;
   # for executables use type 'application/octet-stream' and encode undef
@@ -828,6 +928,7 @@ sub postfile {
   $self->{httpinfo}{postdata}=encode($data,$encode);
   $self->sethdr("Content-Length",length($self->{httpinfo}{postdata}));
 }
+
 sub postdata {
   # RFC 7578
   my ($self,$name,$value,$filename,$type,$encode) = @_;
@@ -849,8 +950,18 @@ sub postdata {
       $data.="\r\nContent-Encoding: $encode"
     }
   }
-  $self->{httpinfo}{postdata}.=$data."\r\n\r\n".encode($value,$encode)."\r\n"
+  $self->{httpinfo}{postdata}.=$data."\r\n\r\n".encode($value,$encode)."\r\n";
 }
+
+sub postbody {
+  my ($self,$mime,$data) = @_;
+  if (!$mime) { $mime="text/html" }
+  $self->sethdr("Content-Type",$mime);
+  $self->{httpinfo}{postdata}=$data;
+  my $len=0; if (defined $data) { $len=length($data) }
+  $self->sethdr("Content-Length",$len)
+}
+
 sub setcharset {
   # RFC 7578 4.6 Set default charset (recommended)
   my ($self,$charset) = @_;
@@ -858,6 +969,7 @@ sub setcharset {
   my $data="--".$self->{boundary}."\r\nContent-Disposition: form-data; name=\"_charset_\"";
   $self->{httpinfo}{postdata}.=$data."\r\n\r\n".$charset."\r\n"
 }
+
 sub postcharset {
   #  RFC 7578 4.5 Set charset for one Content-Disposition (not recommended)
   my ($self,$name,$value,$charset) = @_;
@@ -868,6 +980,7 @@ sub postcharset {
   $data.="\r\nContent-Type: text/plain; charset=$charset\r\nContent-Transfer-Encoding: quoted-printable";
   $self->{httpinfo}{postdata}.=$data."\r\n\r\n".encode_qp($value)."\r\n"
 }
+
 sub nosniff {
   my ($self) = @_;
   $self->sethdr("X-Content-Type-Options","nosniff")
@@ -877,50 +990,60 @@ sub nosniff {
 
 sub get {
   my ($self,$path,$info) = @_;
-  req_get($self,'GET',$path,$info)
+  req_get($self,'GET',$path,$info);
+  return $self
 }
 sub head {
   # query GET but no response data expected
   my ($self,$path,$info) = @_;
-  req_get($self,'HEAD',$path,$info)
+  req_get($self,'HEAD',$path,$info);
+  return $self
 }
 sub post {
   my ($self,$path) = @_;
-  req_post($self,'POST',$path)
+  req_post($self,'POST',$path);
+  return $self
 }
 sub patch {
   # update some data, 200 = OK, 204 = Not found
   my ($self,$path) = @_;
-  req_post($self,'PATCH',$path)
+  req_post($self,'PATCH',$path);
+  return $self
 }
 sub delete {
   # returns 200 = OK, 202 = Accepted, 204 = Not found  
   my ($self,$path) = @_;
-  req_post($self,'DELETE',$path)
+  req_post($self,'DELETE',$path);
+  return $self
 }
 sub put {
   # returns 200 = OK, 201 = Created new field, 204 = Not found 
   my ($self,$path) = @_;
-  req_post($self,'PUT',$path)
+  req_post($self,'PUT',$path);
+  return $self
 }
 sub options {
   my ($self,$path) = @_;
-  req_post($self,'OPTIONS',$path)
+  req_post($self,'OPTIONS',$path);
+  return $self
 }
 sub trace {
   # debug POST call, no response data sent
   my ($self,$path) = @_;
-  req_post($self,'TRACE',$path)
+  req_post($self,'TRACE',$path);
+  return $self
 }
 sub connect {
   # open bi-directional tunnel to HTTPd
   my ($self,$path) = @_;
-  req_post($self,'CONNECT',$path)
+  req_post($self,'CONNECT',$path);
+  return $self
 }
 sub source {
   # open bi-directional tunnel to HTTPd
-  my ($self,$path) = @_;
-  req_get($self,'SOURCE',$path)
+  my ($self,$path,$info) = @_;
+  req_get($self,'SOURCE',$path,$info);
+  return $self
 }
 
 # Request-headers
@@ -1056,21 +1179,11 @@ sub trailers {
 
 # calls for website ready
 
-sub response {
-  my ($self) = @_; return $self->{httpinfo}{response}
-}
-sub responsecode {
-  my ($self) = @_; return $self->{httpinfo}{rescode}
-}
-sub headers {
-  my ($self) = @_; return $self->{httpinfo}{reshead}
-}
-sub contenttype {
-  my ($self) = @_; return $self->{httpinfo}{reshead}{'content-type'}
-}
-sub content {
-  my ($self) = @_; return $self->{httpinfo}{website}
-}
+sub response { my ($self) = @_; return $self->{httpinfo}{response} }
+sub responsecode { my ($self) = @_; return $self->{httpinfo}{rescode} }
+sub headers { my ($self) = @_; return $self->{httpinfo}{reshead} }
+sub contenttype { my ($self) = @_; return $self->{httpinfo}{reshead}{'content-type'} }
+sub content { my ($self) = @_; return $self->{httpinfo}{website} }
 
 # internal http functions
 
@@ -1092,19 +1205,25 @@ sub req_get {
       $self->{httpinfo}{request}.="?$info"
     }
   }
-  $self->{httpinfo}{request}.=" HTTP/1.1"
+  $self->{httpinfo}{request}.=" HTTP/1.1";
+  return $self
 }
 
 sub req_post {
   my ($self,$req,$path) = @_;
-  if (!$path) { $path='/' }
+  if (!$path) { 
+    if($self->{debug}) { print "[ReqPost($req):PATH_NOT_SET]\n" }
+    $path=$self->{path} || '/'
+  }
   $self->{httpinfo}{request}="$req $path HTTP/1.1";
-  $self->{httpinfo}{wantpost}=1
+  $self->{httpinfo}{wantpost}=1;
+  return $self
 }
 
 sub sethdr {
   my ($self,$key,$par) = @_;
-  $self->{httpinfo}{header}{$key}=$par
+  $self->{httpinfo}{header}{$key}=$par;
+  return $self
 }
 sub setpar {
   my ($self,$key,$par,$qval) = @_;
@@ -1114,18 +1233,28 @@ sub setpar {
   } else {
     $self->{httpinfo}{header}{$key}=$par
   }
+  return $self
 }
+
+########## INTERNAL ########################
 
 sub sendheader {
   my ($self) = @_;
   my @data=( $self->{httpinfo}{request} );
   for my $k (keys %{$self->{httpinfo}{header}}) {
-    push @data,$k.": ".$self->{httpinfo}{header}{$k}
+    if (defined $k) {
+      push @data,$k.": ".($self->{httpinfo}{header}{$k}||'')
+    }
   }
   my $rd=join("\r\n",@data)."\r\n\r\n";
+  if ($self->{debug}) { print STDOUT "[sendheader]\n$rd\[end]\n" }
   $self->out($rd); $self->takeloop();
+  if ($self->{sskeround} > 1) {
+    $self->{sskeactive} = 1; # entering DSKE mode
+  }
   if ($self->{httpinfo}{postdata}) {
     my $bd=""; if ($self->{boundary}) { $bd="--".$self->{boundary}."--" }
+    if ($self->{debug}) { print STDOUT "[postdata]\n$self->{httpinfo}{postdata}$bd\r\n[end]\n" }
     $self->out($self->{httpinfo}{postdata}.$bd."\r\n");
     $self->takeloop()
   }
@@ -1147,10 +1276,7 @@ sub decode {
   my ($self) = @_;
   if ($self->{httpinfo}{encoding} eq 'identity') { return }
   if (($self->{httpinfo}{encoding} eq 'gzip') || ($self->{httpinfo}{encoding} eq 'x-gzip')) {
-    my $x = new Compress::Raw::Zlib::Inflate( -WindowBits => WANT_GZIP );
-    my $decoded;
-    my $status = $x->inflate($self->{httpinfo}{website},$decoded);
-    $self->{httpinfo}{website} = $decoded
+    $self->{httpinfo}{website}=Compress::Zlib::memGunzip($self->{httpinfo}{website});
   } elsif ($self->{httpinfo}{encoding} eq 'deflate') {
     my $x = new Compress::Raw::Zlib::Inflate( -WindowBits => -MAX_WBIT );
     my $decoded;
@@ -1233,7 +1359,21 @@ sub http_analyse {
     $self->decode()
   }
   my $tm=gettimeofday()-$self->{connecttime};
-  &$caller($self,'ready',$tm)
+  if (ref($self->{sske}) ne 'HASH' || ($self->{sskeround} > 1)) {
+    &$caller($self,'ready',$tm)
+  } else {
+    $self->{sskeround} = 2;
+    &{$self->{caller}}($self,'connect',$tm)
+  }
+}
+
+sub handlesske {
+  my ($self) = @_;
+  if (ref($self->{sske}) ne 'HASH') { return }
+  $self->{httpinfo}{header} = {
+    'Unlocked-Symmetric-Key' => octhex(scramblekey(hexoct($self->{httpinfo}{reshead}{'double-symmetric-key'}),$self->{sske}{transkey},$self->{sske}{transfunc})),
+    'unlocked-Symmetric-Function' => octhex(scramblekey(hexoct($self->{httpinfo}{reshead}{'double-symmetric-function'}),$self->{sske}{transkey},$self->{sske}{transfunc}))
+  };
 }
 
 sub copyvar {
@@ -1278,19 +1418,31 @@ sub spliturl {
   return $info
 }
 
+sub querydata {
+  my ($url)=@_;
+  my $info=spliturl($url);
+  my $data={};
+  for my $item (split/\&/,$info->{query}) {
+    my($k,$v)=split(/\=/,$item);
+    $data->{$k}=$v
+  }
+  return $data
+}
+
 #### Website/RSS reader ##############################
 
 sub website {
-  my ($url,$user,$pass) = @_;
+  my ($url,$user,$pass,$timeout) = @_; my $sni;
   my $info=spliturl($url);
-  my $self=http($info->{host},$info->{port},1,\&handle_website,undef,$info->{ssl},$info->{path},$info->{query},$user,$pass);
+  if ($info->{host} =~ /[^0-9\.]/) { $sni=$info->{host} }
+  my $self=http($info->{host},$info->{port},1,\&handle_website,$timeout,$info->{ssl},$sni,undef,$info->{path},$info->{query},$user,$pass);
   return $self 
 }
 
 sub handle_website {
   my ($self,$command,$data) = @_;
   if ($command eq 'init') {
-
+    $self->{debug}=0;
   } elsif ($command eq 'request') {
     $self->get($self->{path},$self->{query})
   } elsif ($command eq 'header') {
@@ -1310,10 +1462,10 @@ sub handle_website {
 
 sub icecast2 {
   #   my ($host,$port,$loopmode,$caller,$ssl,$linemode,$timeout,$connectcallback) = @_;
-  my ($host,$port,$loopmode,$caller,$timeout,$ssl) = @_;
+  my ($host,$port,$loopmode,$caller,$timeout,$ssl,$sni) = @_;
   if (ref($caller) ne 'CODE') { error "GClient.icecast2: Caller is not a procedure-reference" }
   if (!$port) { error "GClient.icecast2: No port given" }
-  my $self=openconnection($host,$port,0,$timeout,$ssl,\&tcpipconnected);
+  my $self=openconnection($host,$port,0,$timeout,$ssl,\&tcpipconnected,$sni);
   $self->{protocol}='icecast'; $self->{icecast}=1;
   $self->{usercaller}=$caller;
   $self->{caller}=\&handle_icecast2;
@@ -1366,7 +1518,7 @@ sub handle_icecast2 {
     $self->{iceinfo}{framesize} = int (144 * $self->{iceinfo}{bitrate} / $self->{iceinfo}{samplerate});
     my $onesec = $self->{iceinfo}{bitrate} >> 3;
     $self->{iceinfo}{frametime} = $self->{iceinfo}{framesize} / $onesec;
-    print " * framesize = $self->{iceinfo}{framesize}\n * frametime = $self->{iceinfo}{frametime}\n";
+    print STDOUT " * framesize = $self->{iceinfo}{framesize}\n * frametime = $self->{iceinfo}{frametime}\n";
   } elsif ($command eq 'connect') {
     &$caller($self,'connected',$data);
     my $auth=encode_base64($self->{iceinfo}{login}.':'.$self->{iceinfo}{password});
@@ -1563,7 +1715,8 @@ sub icecast2_metadata {
 
 sub starthandshake {
   my ($self,$ctm) = @_;
-  my $hash=sha1("Domero".gettimeofday."Domero");
+  my $tm=gettimeofday();
+  my $hash=sha1("Domero".$tm."Domero");
   my $handshake = encode_base64($hash);
   $self->{handshake}=$handshake;
   my $out=<<EOT;
@@ -1584,11 +1737,22 @@ EOT
 }
 
 sub websocket {
-  my ($host,$port,$loopmode,$caller,$ssl,$timeout) = @_;
+  my ($host,$port,$loopmode,$caller,$ssl,$timeout,$sni,$sske) = @_;
   if (!defined $caller || (ref($caller) ne 'CODE')) { error "GClient.websocket: Caller is not a procedure-reference" }
-  my $self=openconnection($host,$port,0,$timeout,$ssl,\&starthandshake);
+  my $self=openconnection($host,$port,0,$timeout,$ssl,\&starthandshake,$sni);
   if ($self->{error}) { &$caller($self,"quit",$self->{error}); $self->quit; return $self }
   $self->{caller}=$caller;
+  $self->{sske} = {
+    symkey => createkey(),
+    symfunc => createkey(),
+    transkey => createkey(),
+    transfunc => createkey()
+  };
+  my $skey = octhex(scramblekey($self->{sske}{symkey},$self->{sske}{transkey},$self->{sske}{transfunc}));
+  my $fkey = octhex(scramblekey($self->{sske}{symfunc},$self->{sske}{transkey},$self->{sske}{transfunc}));
+  $self->{httpinfo}{header}{'Symmetric-Key'}=$skey;
+  $self->{httpinfo}{header}{'Symmetric-Function'}=$fkey;
+  $self->{sskeround}=1; $self->{sskeactive}=0;
   &$caller($self,'init');
   $self->{upgradetime}=gettimeofday();  
   $self->{upgrademode}=1;
@@ -1615,7 +1779,7 @@ sub wsupgrade {
   # reactivate writing server -> client
   $self->{ws}={ upgraded => 0 }; $response =~ s/\r//g;
   foreach my $line (split(/\n/,$response)) {
-    # print "$line\n";
+    if ($self->{debug}) { print STDOUT "$line\n" }
     if ($line =~ /^http\/1\.. ([0-9]+)/i) { $self->{ws}{httpstatus}=$1 }
     if ($line =~ /^Sec-WebSocket-Accept: (.+)$/i) { $self->{ws}{key}=$1 }
     if ($line =~ /^upgrade: websocket/i) { $self->{ws}{upgraded}=1 }
@@ -1645,7 +1809,7 @@ sub wsinput {
   }
   my $blen=length($self->{ws}{buffer});
   if ($blen < 2) { return }
-  #print " << INPUT [$len] $self->{host}:$self->{port}     \n";
+  if ($self->{debug}) { print STDOUT " << INPUT [$blen] $self->{host}:$self->{port}     \n" }
   my $caller=$self->{caller};
   my $firstchar=ord(substr($self->{ws}{buffer},0,1));
   my $secondchar=ord(substr($self->{ws}{buffer},1,1));
@@ -1696,20 +1860,19 @@ sub wsinput {
 
 sub handlews {
   my ($self,$type,$msg) = @_;
-  # print " < WS $type $msg      \n";
+  if ($self->{debug}) { print STDOUT print " < WS $type $msg      \n" }
+  if ($self->{sskeactive}) { $msg=$self->crypt($msg,0) }
   my $caller=$self->{caller};
   if ($type eq 'close') {
     utf8::decode($msg);
     my $code=(ord(substr($msg,0,1))<<8)+ord(substr($msg,1,1));
     $msg=substr($msg,2); if (!$msg) { $msg="Quit" }
     &$caller($self,'quit',"$code $msg");
-    if ($self->{verbose}) {
-      print STDOUT "\nWebSocket server has closed the connection: $code $msg\n"
-    }
+    if ($self->{verbose}) { print STDOUT "\nWebSocket server has closed the connection: $code $msg\n" }
     $self->quit    
   } elsif ($type eq 'ping') {
     $self->wsout($msg,'pong');
-    #print "> PONG $msg\n"
+    if ($self->{debug}) { print STDOUT print "> PONG $msg\n" }
   } elsif ($type eq 'pong') {
     # bi-directional ping/pong ? that takes balls !
   } else {
@@ -1725,13 +1888,15 @@ sub wsmsg {
 sub wsquit {
   my ($self,$msg) = @_;
   $self->wsout($msg,'close');
-  $self->outburst()
+  $self->outburst();
+  $self->{killafteroutput}=1;
 }
 
 sub wsout {
   # RFC 6455
   my ($self,$msg,$type) = @_;
   if (!defined $msg) { $msg="" }
+  if ($self->{sskeactive}) { $msg=$self->crypt($msg,1) }
   my $len=length($msg);
   if (!$type) { $type = 'text' }
   my $tp=1;
@@ -1762,7 +1927,7 @@ sub wsout {
   for (my $p=0;$p<$len;$p++) {
     $out.=chr(ord(substr($msg,$p,1)) ^ $mask[$p % 4])
   }
-  # print "> OUT: $msg ($type)\n";
+  if ($self->{debug}) { print STDOUT "> OUT: $msg ($type)\n" }
   $self->out($out);
   if ($type eq 'close') { $self->quit }
 }
@@ -1787,6 +1952,131 @@ sub quit {
 ###############################################################################
 # Global functions                                                            #
 ###############################################################################
+
+sub createkey {
+  my ($pubkey, $privkey) = Crypt::Ed25519::generate_keypair;
+  return $privkey
+}
+
+sub scramblekey {
+  # 64 bit CPU-mode only!
+  if ($cpu32) { return scramblekey32(@_) }
+  my ($shared,$private,$fkey) = @_;
+  my @plist=unpack('Q*',$private);
+  my @flist=unpack('Q*',$fkey);
+  my $key=""; my $i=0;
+  for my $c (unpack('Q*',$shared)) {
+    my $x = $c ^ $plist[$i];
+    $key.=pack('Q',(($x & ~$flist[$i]) | (~$x & $flist[$i])));
+    $i++
+  }
+  return $key
+}
+
+sub scramblekey32 {
+  # 32 bit CPU-mode only!
+  my ($shared,$private,$fkey) = @_;
+  my @plist=unpack('N*',$private);
+  my @flist=unpack('N*',$fkey);
+  my $key=""; my $i=0;
+  for my $c (unpack('N*',$shared)) {
+    my $x = $c ^ $plist[$i];
+    $key.=pack('N',(($x & ~$flist[$i]) | (~$x & $flist[$i])));
+    $i++
+  }
+  return $key
+}
+
+sub crypt {
+  # EXTREME strong encoding
+  my ($client,$data,$forceencode) = @_;
+  my $decode=(substr($data,0,4) eq 'DSKE'); my $ofs=0;
+  if ($forceencode) { $decode=0 }
+  my $datalen=length($data)-8*$decode; my $orglen=$datalen;
+  if ($decode) {
+    $orglen=unpack('N',substr($data,4,4)); $ofs=8;
+    my $rest=$orglen % 64; if ($rest) { $rest=64-$rest }
+    if ($orglen+$rest != $datalen) {
+      # Found size ($len) different from actual size ($datalen)
+      return undef
+    }
+  } elsif ($datalen > 16777216) {
+    error("Domero Encoder: Datalength exceeds 16Mb.")
+  }
+  my $sha=sha512($client->{sske}{symkey});
+  my $scram; my $kscram;
+  if ($datalen > 4096) {
+    $scram=sha512($client->{sske}{symfunc});
+    if ($datalen > 262144) {
+      $kscram=sha512($sha.$scram);
+    }
+  }
+  my $dataoffset=unpack('n',substr($sha,0,2)) % $orglen;
+  if (!$decode) { $ofs+=$dataoffset }
+  # add padding to get 64 byte granularity
+  my $rest=$datalen % 64;
+  if ($rest) { $data.=chr(0)x(64-$rest); $datalen+=64-$rest }
+  my $nb = $datalen >> 6; my $out=""; my $dat;
+  my $filter = $client->{sske}{symfunc};
+  for my $b (1..$nb) {
+    if (!$decode && ($ofs+64>$datalen)) {
+      my $rest=64+$ofs-$datalen;
+      $dat=substr($data,$ofs).substr($data,0,$rest); $ofs=$rest
+    } else {
+      $dat=substr($data,$ofs,64); $ofs+=64
+    }
+    $out.=scramblekey($dat,$client->{sske}{symkey},$filter);
+    $filter=substr($filter,1).substr($filter,0,1);
+    if ($b % 64 == 0) {
+      # every 4Kb -> new filter (all used up), filter = 64 bytes * 4Kb = max 256Kb
+      if ($b % 4096 == 0) {
+        # every 256Kb -> new scram (all used up), kscram = 64 bytes * 256Kb = 16Mb
+        my @sl=unpack('N*',$kscram); my $ns=""; my $i=0;
+        for my $f (unpack('N*',$scram)) {
+          $ns.=pack('N',$f ^ $sl[$i]); $i++
+        }
+        $scram=$ns;
+        $kscram=substr($kscram,1).substr($kscram,0,1);
+      }
+      $filter=""; my $i=0;
+      my @sl=unpack('N*',$scram);
+      for my $f (unpack('N*',$client->{sske}{symfunc})) {
+        $filter.=pack('N',$f ^ $sl[$i]); $i++
+      }
+      $scram=substr($scram,1).substr($scram,0,1);
+    }
+  }
+  # add header
+  if ($decode) {
+    # delete encoded zeros padding ( = garbage) and re-adjust data for dataoffset
+    $out=substr($out,$datalen-$dataoffset).substr($out,0,$orglen-$dataoffset)
+  } else {  
+    $out='DSKE'.pack('N',$orglen).$out
+  }
+  return $out
+}
+
+sub octhex {
+  my ($key) = @_;
+  if (!defined $key) { return "" }
+  my $hex;
+  for (my $i=0;$i<length($key);$i++) {
+    my $c=ord(substr($key,$i,1));
+    $hex.=sprintf('%02X',$c);
+  }
+  return $hex  
+}
+
+sub hexoct {
+  my ($hex) = @_;
+  if (!defined $hex) { return "" }
+  my $key="";
+  for (my $i=0;$i<length($hex);$i+=2) {
+    my $h=substr($hex,$i,2);
+    $key.=chr(hex($h));
+  }
+  return $key
+}
 
 sub encode_base64_char {
   my ($code,$c62,$c63) = @_;
@@ -1829,11 +2119,7 @@ sub encode {
   my ($data,$encode) = @_;
   if (!$encode) { return $data }
   if (($encode eq 'gzip') || ($encode eq 'x-gzip')) {
-    my $x = new Compress::Raw::Zlib::Deflate( -WindowBits => WANT_GZIP );
-    my ($output, $status);
-    $status = $x->deflate($data,$output);
-    $status = $x->flush($output);
-    return $output
+    return Compress::Zlib::memGzip($data);
   } elsif ($encode eq 'deflate') {
     my $x = new Compress::Raw::Zlib::Deflate( -WindowBits => -MAX_WBIT );
     my ($output, $status);

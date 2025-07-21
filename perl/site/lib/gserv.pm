@@ -1,4 +1,5 @@
-#!/usr/bin/perl -w
+#!/usr/bin/perl
+# -w -CSDA
 
 package gserv;
 
@@ -6,7 +7,7 @@ package gserv;
 #                                                                    #
 #          Round Robin Server                                        #
 #           - websockets, telnet, http, raw, IceCast                 #
-#           - SSL support                                            #
+#           - *Multi-Domain* SSL support                             #
 #           - fully bidirectional non-blocking, all systems          #
 #                                                                    #
 #          (C) 2018 Domero                                           #
@@ -45,27 +46,33 @@ package gserv;
 
 use strict;
 use warnings;
+no warnings 'uninitialized';
+no warnings 'utf8';
 use Socket;
 use IO::Socket::IP -register;
 use IO::Handle;
 use IO::Select;
 use IO::Socket::SSL;
-use POSIX qw(:sys_wait_h EAGAIN EBUSY);
+use POSIX qw(:sys_wait_h :errno_h EAGAIN EBUSY mktime);
 use Fcntl qw(F_GETFL F_SETFL O_NONBLOCK);
 use Time::HiRes qw(usleep gettimeofday);
+use Digest::SHA qw(sha256 sha256_hex sha512);
 use Digest::SHA1 qw(sha1);
 use Digest::MD5 qw(md5);
+use HTTP::Date;
+use Crypt::Ed25519;
 use utf8;
 use gerr qw(error);
 use gpost 1.2.1;
-use HTTP::Date;
+use HTML::Entities;
+
 use Exporter;
 use vars qw($VERSION @ISA @EXPORT @EXPORT_OK);
 
-$VERSION     = '4.3.2';
+$VERSION     = '5.5.2';
 @ISA         = qw(Exporter);
 @EXPORT      = qw(wsmessage);
-@EXPORT_OK   = qw(prtm localip init start wsmessage out burst takeloop broadcast wsbroadcast broadcastfunc httpresponse);
+@EXPORT_OK   = qw(prtm localip init start wsmessage out burst takeloop broadcast wsbroadcast broadcastfunc httpresponse cpu32);
 
 my $CID = 0;
 my $SSLPATH='/etc/letsencrypt/live';
@@ -73,7 +80,16 @@ my $SSLCERT='cert.pem';
 my $SSLKEY='privkey.pem';
 my $SSLCA='chain.pem';
 
-1;
+my $cpu32 = (~0 == 4294967295);
+
+################################################################################
+sub log {
+  my($serv,@msg)=@_;
+  if (ref($::LOG) eq 'CODE') { &{$::LOG}(@msg) }
+  elsif (ref($::API_LOG) eq 'CODE') { &{$::API_LOG}(@msg) }
+  else{ print STDOUT prtm(),@_,"\n" }
+}
+################################################################################
 
 sub setssl {
   my ($path,$cert,$key,$ca) = @_;
@@ -96,7 +112,9 @@ sub init {
     name => "Eureka Server $VERSION by Chaosje (C) 2019 Domero",      # Server name
     version => $VERSION,                     # server version
     ssl => defined $ssldomain && $ssldomain, # Use SSL
+    sske => 0,                               # Use SSKE
     ssldomain => $ssldomain,                 # SSL keys will be found in $SSLPATH/ssldomain
+    ssldebug => 1,                           # debug SSL process information
     verbose => 1,                            # Output to STDOUT
     debug => 0,                              # verbose everything
     websocketmode => 0,                      # Only allow websocket connections
@@ -108,7 +126,7 @@ sub init {
     verbosepingpong => 0,                    # Verbose ping/pong requests and responses
     verboseheader => 0,                      # Verbose the HTTP-header
     timeout => 10,                           # Seconds to idle to server before timeout (0=unlimited)
-    buffersize => 1024,                      # Bytes to read from socket at loop-passes
+    buffersize => 1024*64,                   # Bytes to read from socket at loop-passes
     server => {
       host => localip(),                     # Our IP-addres
       loopwait => 1000,                      # Main wait-time if idle in nanoseconds (1000000/number of user to expect)
@@ -139,110 +157,120 @@ sub init {
 }
 
 sub start {
-  my ($self,$autoloop,$servloop) = @_;
-  if ($servloop && (ref($servloop) ne 'CODE')) { error "GServ.Start: ServLoop is not a coderef" }
-  $self->{servloop}=$servloop; my $err="";
-  if ($self->{debug}) { $self->{verbosepingpong}=1 }
-  if ($self->{maxdatasize}<65535) { $self->{maxdatasize}=65535 } # (websockets) allow a minimum of 64Kb data packets.
-  
-  # Auto flush and select Console
-  select(STDOUT); $|=1;
+    my ($self, $autoloop, $servloop) = @_;
+    if ($servloop && (ref($servloop) ne 'CODE')) { error "GServ.Start: ServLoop is not a coderef" }
+    $self->{servloop} = $servloop;
+    my $err = "";
+    if ($self->{debug}) { $self->{verbosepingpong} = 1 }
+    if ($self->{maxdatasize} < 65535) { $self->{maxdatasize} = 65535 } # (websockets) allow a minimum of 64Kb data packets.
 
-  # Setup TCP/IP & SSL
-  my $proto = getprotobyname('tcp');
-  if ($self->{ssl}) {
-    $self->{sslcert}="$SSLPATH/$self->{ssldomain}/$SSLCERT";
-    if (!-e $self->{sslcert}) {
-      print STDOUT "SSL-certificate '$self->{sslcert}' does not exist"; return $self
+    # Auto flush and select Console
+    select(STDOUT); $| = 1;
+
+    # Setup TCP/IP & SSL
+    my $proto = getprotobyname('tcp');
+    if ($self->{ssl}) {
+        if (ref($self->{ssldomain}) ne 'ARRAY') {
+            $self->{ssldomain} = [$self->{ssldomain}];
+        }
+        $self->{sslcert} = {};
+        $self->{sslkey} = {};
+        $self->{sslca} = {};
+        for my $ssldomain (@{$self->{ssldomain}}) {
+            $self->{sslcert}{$ssldomain} = "$SSLPATH/$ssldomain/$SSLCERT";
+            if (!-e $self->{sslcert}{$ssldomain}) {
+                $self->log("SSL-certificate '$self->{sslcert}{$ssldomain}' does not exist");
+                return $self;
+            }
+            $self->{sslkey}{$ssldomain} = "$SSLPATH/$ssldomain/$SSLKEY";
+            if (!-e $self->{sslkey}{$ssldomain}) {
+                $self->log("SSL-key '$self->{sslkey}{$ssldomain}' does not exist");
+                return $self;
+            }
+            $self->{sslca} = "$SSLPATH/$ssldomain/$SSLCA";
+            if (!-e $self->{sslca}) {
+                $self->log("SSL-ca '$self->{sslca}' does not exist");
+                return $self;
+            }
+        }
     }
-    $self->{sslkey}="$SSLPATH/$self->{ssldomain}/$SSLKEY";
-    if (!-e $self->{sslkey}) {
-      print STDOUT "SSL-key '$self->{sslkey}' does not exist"; return $self
+
+    # create a socket, make it reusable, set buffers
+    socket($self->{server}{socket}, PF_INET, SOCK_STREAM, $proto) or $err = "Can't open socket: $!";
+    if ($err) {
+        if ($self->{ssl} && $self->{ssldebug}) { $self->log("SOCKET_SSL_ERROR: $err") }
+        $self->{error} = $err;
+        return $self;
     }
-    $self->{sslca}="$SSLPATH/$self->{ssldomain}/$SSLCA";
-    if (!-e $self->{sslca}) {
-      print STDOUT "SSL-ca '$self->{sslca}' does not exist"; return $self
+    setsockopt($self->{server}{socket}, SOL_SOCKET, SO_REUSEADDR, 1) or $err = "Can't set socket: $!";
+    if ($err) {
+        if ($self->{ssl} && $self->{ssldebug}) { $self->log("SOCKET_SSL_ERROR: $err") }
+        $self->{error} = $err;
+        return $self;
     }
-  }
-
-  # create a socket, make it reusable, set buffers
-  socket($self->{server}{socket}, PF_INET, SOCK_STREAM, $proto) or $err="Can't open socket: $!";
-  if ($err) { $self->{error}=$err; return $self }
-  setsockopt($self->{server}{socket}, SOL_SOCKET, SO_REUSEADDR, 1) or $err="Can't set socket: $!";
-  if ($err) { $self->{error}=$err; return $self }
-  setsockopt($self->{server}{socket}, SOL_SOCKET, SO_RCVBUF, 1<<23) or $err="Can't set socket's receive buffer: $!";
-  if ($err) { $self->{error}=$err; return $self }
-  setsockopt($self->{server}{socket}, SOL_SOCKET, SO_SNDBUF, 1<<23) or $err="Can't set socket's send buffer: $!";
-  if ($err) { $self->{error}=$err; return $self }
-
-  # grab a port on this machine 
-  my $paddr = sockaddr_in($self->{server}{port}, INADDR_ANY);
-
-  # bind to a port, then listen 
-  bind($self->{server}{socket}, $paddr) or $err="Can't bind to address $paddr: $!"; 
-  if ($err) { $self->{error}=$err; return $self }
-  listen($self->{server}{socket}, SOMAXCONN) or $err="Server can't listen: $!";
-  if ($err) { $self->{error}=$err; return $self }
-
-  # set autoflush on
-  $self->{server}{socket}->autoflush(1);
-
-  # set server accept to non-blocking, otherwise the server will block waiting
-  IO::Handle::blocking($self->{server}{socket},0);
-  if ($^O =~ /win/i) {
-    my $nonblocking=1;
-    ioctl($self->{server}{socket}, 0x8004667e, \$nonblocking);
-  } 
-
-  $self->{server}{running}=1;
-
-  $self->{start}=gettimeofday();
-
-  if ($self->{verbose}) {
-    print STDOUT prtm(),"Server '$self->{name}' started on port $self->{server}{port}\n"
-  }
-  if ($self->{serverhandle}) {
-    my $func=$self->{serverhandle};
-    &$func('connected')
-  }
-  $self->{loopmode}=$autoloop;
-  if ($autoloop) {
-    while ($self->{server}{running}) {
-      $self->takeloop;
+    setsockopt($self->{server}{socket}, SOL_SOCKET, SO_RCVBUF, 1<<20) or $err = "Can't set socket's receive buffer: $!";
+    if ($err) {
+        if ($self->{ssl} && $self->{ssldebug}) { $self->log("SOCKET_SSL_ERROR: $err") }
+        $self->{error} = $err;
+        return $self;
     }
-  }
-  return $self
+    setsockopt($self->{server}{socket}, SOL_SOCKET, SO_SNDBUF, 2<<20) or $err = "Can't set socket's send buffer: $!"; # 2 MB
+    if ($err) {
+        if ($self->{ssl} && $self->{ssldebug}) { $self->log("SOCKET_SSL_ERROR: $err") }
+        $self->{error} = $err;
+        return $self;
+    }
+
+    # grab a port on this machine
+    my $paddr = sockaddr_in($self->{server}{port}, INADDR_ANY);
+
+    # bind to a port, then listen
+    bind($self->{server}{socket}, $paddr) or $err = "Can't bind to address $paddr: $!";
+    if ($err) {
+        if ($self->{ssl} && $self->{ssldebug}) { $self->log("SOCKET_SSL_ERROR: $err") }
+        $self->{error} = $err;
+        return $self;
+    }
+    listen($self->{server}{socket}, SOMAXCONN) or $err = "Server can't listen: $!";
+    if ($err) {
+        if ($self->{ssl} && $self->{ssldebug}) { $self->log("SOCKET_SSL_ERROR: $err") }
+        $self->{error} = $err;
+        return $self;
+    }
+
+    # set autoflush on
+    $self->{server}{socket}->autoflush(1);
+
+    # set server accept to non-blocking, otherwise the server will block waiting
+    IO::Handle::blocking($self->{server}{socket}, 0);
+    if ($^O =~ /win/i) {
+        my $nonblocking = 1;
+        ioctl($self->{server}{socket}, 0x8004667e, \$nonblocking);
+    }
+
+    $self->{server}{running} = 1;
+    $self->{start} = gettimeofday();
+    if ($self->{verbose}) { $self->log("Server '$self->{name}' started on port $self->{server}{port}") }
+    if (ref($self->{serverhandle}) eq 'CODE') { &{$self->{serverhandle}}('connected') }
+
+    # Internal Loopmode
+    $self->{loopmode} = $autoloop;
+    if ($autoloop) {
+        while ($self->{server}{running}) {
+            $self->takeloop;
+        }
+    }
+
+    return $self;
 }
 
-sub outsock {
-  my ($self,$client,$data) = @_;
-  if (!$self->{isserver}) { error "Design change version 4! $self->outsock demands the server! Use out or burst instead" }
-  my $sock=$client->{socket};
-  my $func=$self->{clienthandle};
-  if (!$sock) { $client->{killme}=1; return }
-  if (!IO::Socket::connected($sock)) { $client->{killme}=1; return }
-  if ($client->{ssl}) {
-    my $len=length($data);
-    if ($len<=16384) {
-      syswrite($sock,$data,$len); return
-    }
-    my $pos=0; my $sz=16384; 
-    while ($pos<$len) {
-      if ($pos+$sz>$len) { $sz=$len-$pos }
-      syswrite($sock,substr($data,$pos,$sz),$sz);
-      $pos+=$sz
-    }
-  } else {
-    print $sock $data
-  }
-  my $len=length($data); $client->{bytessent}+=$len;
-  &$func($client,'sent',$len);
-}
+################################################################################
 
 sub takeloop {
   my ($self) = @_;
   if (!$self->{server}{running}) { return }
   my $client;
+  my $func=$self->{serverhandle};
   if (($self->{numclients}<$self->{maxclients}) || ($self->{maxclients} == 0)) {
     my $client_addr = accept($client, $self->{server}{socket});
     if ($client_addr) {
@@ -257,8 +285,12 @@ sub takeloop {
 
       # Non-blocking for UNIX. Won't harm other systems
       $client->blocking(0);
+
+      # Client IP:PORT
       my ($port,$iph) = sockaddr_in($client_addr); 
       my $ip = inet_ntoa($iph);
+      
+      # Non-blocking
       my $socketerr=0;
       if ($^O =~ /win/i) {
         # Non-blocking for Windows. _IOW('f', 126, u_long)
@@ -268,7 +300,10 @@ sub takeloop {
         my $flags = fcntl($client, F_GETFL, 0) or $socketerr=1;
         $flags = fcntl($client, F_SETFL, $flags | O_NONBLOCK) or $socketerr=1;
         if ($socketerr) {
-          print STDOUT "ERROR [$ip\:$port] Cannot set non-blocking mode on socket!\n";
+          &$func($client,'error',"[$ip\:$port] Cannot set non-blocking mode on socket!");
+          if ($self->{verbose}) {
+            $self->log("ERROR [$ip\:$port] Cannot set non-blocking mode on socket!\n");
+          }
           close($client)
         }
       }    
@@ -283,8 +318,9 @@ sub takeloop {
         if ($ip =~ /$bip/) { $valid=0 }
       }
       if (!$valid) {
+        &$func($client,'error',"[$ip\:$port] ILLEGAL ACCESS");
         if ($self->{verbose}) {
-          print STDOUT "ILLEGAL ACCESS: $ip\:$port\n"
+          $self->log("[$ip\:$port] ILLEGAL ACCESS\n");
         }  
         close($client)        
       } elsif (!$socketerr) {  
@@ -294,34 +330,58 @@ sub takeloop {
           $host=gethostbyaddr($iph, AF_INET);
           if (!$host) {
             if (($ip =~ /^192\.168/) || ($ip =~ /^10\.0\.0/)) { $host='LAN' }
-            else { $host='Unknown' }
+            else { $host='UnknownHost' }
           }
         }
 
         # SSL
         my $sslerr=0;
+        my $sslforward=0;
         if ($self->{ssl}) {
           IO::Socket::SSL->start_SSL($client,
             SSL_server => 1,
+            SSL_verify_mode => SSL_VERIFY_FAIL_IF_NO_PEER_CERT,#SSL_VERIFY_NONE
             SSL_cert_file => $self->{sslcert},
             SSL_key_file => $self->{sslkey},
             SSL_ca_file => $self->{sslca},
+            Listen => 128
           ) or $sslerr=1;
-          if ($sslerr) { print STDOUT prtm(),"Failed to ssl handshake: $SSL_ERROR\n"; close($client) }
+          if ($sslerr) {
+            &$func($client,'error',$SSL_ERROR);
+            if (
+              $SSL_ERROR =~ /\:1408F09C\:/gs #||   # SSL routines:ssl3_get_record:http request
+            #  $SSL_ERROR =~ /\:14094416\:/gs      # SSL routines:ssl3_read_bytes:sslv3 alert certificate unknown
+            #  $SSL_ERROR =~ /\:1422E0EA\:/gs      # SSL routines:final_server_name:callback failedlo:version too low
+            ) {
+              $sslforward=1;
+              &$func($client,'ssl_forward',{ip=>$ip,port=>$port,host=>$host,error=>"http request"});
+              if ($self->{verbose}) {
+                $self->log("[Forwarding][$ip]");
+              }
+            }else{
+              &$func($client,'ssl_error',{ip=>$ip,port=>$port,host=>$host,error=>$SSL_ERROR});
+              if ($self->{verbose}) {
+                $self->log("[$ip:$port] $SSL_ERROR");
+              }
+              close($client) 
+            }
+          }
         }
 
-        if (!$sslerr) {
+        if (!$sslerr||$sslforward) {
           $CID++;
-          my $cdata = {
+          my $cl=gserv::client->new($self,{
             id => $CID,
             socket => $client,
-            ssl => $self->{ssl},
+            ssl => $sslforward ? undef : $self->{ssl},
+            sslforward => $sslforward,
             handle => $client_addr,
             host => $host,
             ip => $ip,
             iphandle => $iph,
             port => $port,
             serverport => $self->{server}{port},
+            server => $self,
             start => $tm,
             last => $tm,
             quit => 0,
@@ -335,6 +395,8 @@ sub takeloop {
             httpmode => 0,
             httpreadheader => 0,
             httpheader => {},
+            sskemode => 0,
+            sskeactive => 0,
             websockets => 0,
             icecast => 0,
             iceversion => "",
@@ -357,18 +419,17 @@ sub takeloop {
             wsbuffer => "",
             wsdata => "",
             wstype => "",
-          };
-          push @{$self->{clients}},$cdata;
-          $self->{numclients}++;
-          if ($self->{verbose}) {
-            print STDOUT prtm(),"JOIN $ip\:$port ($host)\n"
-          }
-          if ($self->{serverhandle}) {
-            my $func=$self->{serverhandle};
-            &$func('connect',$cdata)
-          }
-          my $func=$self->{clienthandle};
-          &$func($cdata,'connect')
+          });
+          #if ($self->{sske}) {
+          #  $cdata->{sske} = { transkey => createkey(), transfunc => createkey() };
+          #  $cdata->{sskemode}=1
+          #}
+          #push @{$self->{clients}},$cdata;
+          #$self->{numclients}++;
+          #if ($self->{verbose}) { $self->log("JOIN $ip\:$port ($host)") }
+          #if ($self->{serverhandle}) { my $func=$self->{serverhandle}; &$func('connect',$cdata) }
+          #my $func=$self->{clienthandle};
+          #&$func($cdata,'connect')
         }
       }
     }
@@ -398,12 +459,60 @@ sub takeloop {
   }
 }
 
+sub gtmtimestring {
+  my @t=localtime(mktime(localtime(time())));
+  my $tm=('Sun','Mon','Tue','Wed','Thu','Fri','Sat')[$t[6]]; $tm.=", ";
+  my $yr=$t[5]+1900; my $mon=('Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec')[$t[4]];
+  $tm.="$t[3] $mon $yr ";
+  $tm.=join(':',sprintf("%02d",$t[2]),sprintf("%02d",$t[1]),sprintf("%02d",$t[0]));
+  $tm.=" GMT";
+  return $tm
+}
+
+sub httpforward_tohttps {
+  my ($self,$client) = @_;
+  my $loc="";
+  if (ref($self) && ref($client)) {
+    $loc="[SERV{$self}:CLIENT{$client}]";
+    if (defined $client->{httpheader}) {
+      my $uri=(defined $client->{httpheader}{uri} ? $client->{httpheader}{uri} : '/');
+      my @out=(gserv::httpresponse(301));
+      $loc="https://$client->{httpheader}{host}".($self->{server}{port} != 80 && $self->{server}{port} != 443 ? ":$self->{server}{port}":"").$uri;
+      if ($client->{httpheader}{getdata}) { $loc.='?'.$client->{httpheader}{getdata} }
+      my $html=<<EOT;
+  <DOCTYPE html>
+  <html><body><div style="left: 0; right: 0; top: 0; bottom: 0; border: 1px black; padding: 40px; margin: auto; color: black; ba
+  ckground: red;">Site has been permanently moved<br />$loc</div></body></html>
+EOT
+      push @out,"Date: ".gtmtimestring();
+      push @out,"Server: $self->{name}";
+      push @out,"Location: $loc";
+      push @out,"Content-Length: ".length($html);
+      push @out,"Keep-Alive: timeout=5, max=100";
+      push @out,"Connection: Keep-Alive";
+      push @out,"Content-Type: text/html; charset=iso-8859-1";
+      my $data=join("\r\n",@out)."\r\n\r\n".$html;
+      $client->{killafteroutput}=1;
+      gserv::burst($client,\$data);
+      $self->log("[$client->{ip}:$client->{port}][HTTP_FORWARD > $loc]");
+      #$self->log("$data\n");
+    }else{
+      $loc="no-http-header"
+    }
+  }else{
+    $loc="undefined"
+  }
+  return $loc
+}
+
 sub loopall {
   my ($self) = @_;
   for (my $i=1;$i<=$self->{numclients};$i++) {
     $self->takeloop()
   }
 }
+
+################################################################################
 
 sub removeclient {
   my ($self) = @_;
@@ -425,26 +534,30 @@ sub deleteclient {
         $client->{selector}->remove($client->{socket});
       }
       # Signal WebSocket server to delete client and round things up.
-      if ($client->{ssl}) {
-        $client->{socket}->close(SSL_no_shutdown => 1)
-      } else {
-        shutdown($client->{socket},2); close($client->{socket}); 
+      if ($client->{socket}) {
+        if ($client->{ssl}) {
+          $client->{socket}->close(SSL_no_shutdown => 1)
+        } else {
+          shutdown($client->{socket},2); close($client->{socket}); 
+        }
       }
     }
   }
   if ($self->{verbose}) {
     # my $err=gerr::trace(); print "$err\n";
-    print STDOUT prtm(),"QUIT $ip\:$port\n"
+    $self->log("QUIT $ip\:$port");
   }
   if ($self->{serverhandle}) {
     my $func=$self->{serverhandle};
-    &$func('disconnect',$client)
+    &$func($client,'disconnect')
   }
   my $func=$self->{clienthandle};
   &$func($client,'quit',$msg);
   $self->removeclient();
   $self->{deleteflag}=1;
 }
+
+################################################################################
 
 sub wschardecode {
   my ($client,$key)=@_;
@@ -513,6 +626,7 @@ sub wsinput {
     $client->{wsdata}=""
   }
   $client->{wsbuffer}=substr($client->{wsbuffer},$offset);
+  # moved to the main loop to prevent: Deep recursion on subroutine "gserv::wsinput";
   if (length($client->{wsbuffer})) { $self->wsinput($client) }
 }
 
@@ -522,14 +636,15 @@ sub handlews {
   if (length($client->{wsdata}) > $self->{maxdatasize}) { &func($client,'error',"1009 Datasize too large") }
   if ($client->{wstype} eq 'ping') {
     if ($client->{verbosepingpong}) {
-      print STDOUT prtm(),"*< PING $client->{ip}\:$client->{port}\n";
+      $self->log("*< PING $client->{ip}\:$client->{port}");
     }
+    if ($client->{sskeactive}) { $client->{wsdata}=sskecrypt($client,$client->{wsdata},0) }
     wsmessage($client,$client->{wsdata},'pong');
     $client->{lastping}=gettimeofday();
     $client->{pingsent}=0
   } elsif ($client->{wstype} eq 'pong') {
     if ($client->{verbosepingpong}) {
-      print STDOUT prtm(),"*< PONG $client->{ip}\:$client->{port}\n";
+      $self->log("*< PONG $client->{ip}\:$client->{port}");
     }
     if ($client->{pings}{$client->{wsdata}}) {
       delete $client->{pings}{$client->{wsdata}};
@@ -543,30 +658,36 @@ sub handlews {
   }
 }
 
+################################################################################
+
 sub wsmessage {
   my ($client,$msg,$command) = @_;
   if ($client->{isserver}) { error "Version 3 Design change! wsmessage($client,$msg,$command)" }
   if (!defined($msg) && !defined($command)) { return }  
   if (!$command) { $command='text' }
   # print " >> $client->{ip}:$client->{port} $command $msg     \n";
-  if (!$client || (ref($client) ne 'HASH') || $client->{killme} || $client->{closed} || $client->{dontsend}) { return }
+  if (!$client || (ref($client) !~ /^gserv\:\:client/) || $client->{killme} || $client->{closed} || $client->{dontsend}) { return }
+  if ($client->{sskeactive}) { $msg=sskecrypt($client,$msg,1) }
   my $out=chr(129);
   if ($command eq 'binary') {
     $out=chr(130)
-  } elsif ($command eq 'pong') {
+  }
+  elsif ($command eq 'pong') {
     if ($client->{verbosepingpong}) {
-      print STDOUT "*> PONG $client->{ip}\:$client->{port} $msg\n";
+      $client->{server}->log("*> PONG $client->{ip}\:$client->{port} $msg\n");
     }
     $out=chr(138);
     $client->{lastping}=gettimeofday();
     $client->{pingsent}=0
-  } elsif ($command eq 'ping') {
+  }
+  elsif ($command eq 'ping') {
     if ($client->{verbosepingpong}) {
-      print STDOUT "*> PING $client->{ip}\:$client->{port} $msg\n";
+      $client->{server}->log("*> PING $client->{ip}\:$client->{port} $msg\n");
     }
     $out=chr(137);
     $client->{pingsent}=0
-  } elsif ($command eq 'close') {
+  }
+  elsif ($command eq 'close') {
     $out=chr(136);
     if (!$msg) { $msg="" }
     if ($msg =~ /^([0-9]+) (.+)/) {
@@ -596,8 +717,10 @@ sub wsmessage {
     }
     $out.=$tout;
   }
-  out($client,$out.$msg)
+  $client->out($out.$msg)
 }
+
+################################################################################
 
 sub decbin {
   # 32 bit decimal->string
@@ -611,339 +734,10 @@ sub decbin {
   return $bs
 }
 
-sub out {
-  my ($client,$data) = @_;
-  if (!defined $data) { return }
-  if ($client->{outputmode}) {
-    $client->{outputbuffer}.=$data;
-    $client->{outputlength}+=length($data);
-  } else {
-    $client->{outputmode}=1;
-    $client->{outputbuffer}=$data;
-    $client->{outputlength}=length($data);
-    $client->{outputpointer}=0
-  }
-}
-
-sub burst {
-  # burst some output
-  my ($client,$data) = @_;
-  if (ref($data) ne "SCALAR") { error("Gserv.Burst: Design error, use \\\$data for much faster comunication!") }
-  $client->{burstdata}=$data;
-  $client->{burstlength}=length(${$data});
-  $client->{burstpointer}=0;
-  if ($client->{burstlength}) { $client->{burstmode}=1 }
-}
-
 sub makewshandshake {
   my ($key1,$key2,$key3) = @_;
   my $sum=md5(decbin($key1).decbin($key2).$key3);
   return $sum;
-}
-
-sub handleclient {
-  my ($self) = @_;
-  my $client=$self->{clients}[$self->{current}];
-  my $ctm=gettimeofday();
-  if ($client->{closed}) { $self->deleteclient($client) }
-  $self->{activeclient}=$client;
-  if ($client->{killme}) { $self->deleteclient($client); return }
-  my $sock=$client->{socket};
-  my $func=$self->{clienthandle};
-  if (!$sock) { $self->deleteclient($client); return }
-  if ($client->{burstmode}) {
-    my @ready = $client->{selector}->can_write(0);
-    my $canwrite=0;
-    foreach my $handle (@ready) {
-      if ($handle == $sock) {
-        $canwrite=1; last
-      }
-    }
-    if ($canwrite) {
-      $client->{last}=$ctm;
-      if ($client->{burstpointer} >= $client->{burstlength}) {
-        $client->{burstmode}=0;
-        &$func($client,"bursted");
-        if ($client->{killafteroutput} || $client->{killme}) { $self->deleteclient($client) }
-        return
-      }
-      my $sz=32768;
-      if ($client->{burstpointer}+$sz > $client->{burstlength}) {
-        $sz=$client->{burstlength}-$client->{burstpointer}
-      }
-      $self->outsock($client,substr(${$client->{burstdata}},$client->{burstpointer},$sz));
-      $client->{burstpointer}+=$sz;
-    }
-    return
-  }
-  if ($self->{timeout}) {
-    if ($client->{init}) {
-      if ($client->{httpreadheader}) {
-        if ($ctm-$client->{start}>$self->{timeout}) {
-          $self->outsock($client,"HTTP/1.1 408 REQUEST TIMEOUT\r\n\r\n");
-          &$func($client,'error',"408 Request Timeout");
-          $self->deleteclient($client); return
-        }
-      }
-    }
-  }
-  my $loopfunc=$self->{clientloop};
-  if (defined $loopfunc) {
-    if (defined &$loopfunc) {
-      &$loopfunc($client)
-    } else {
-      error "Invalid loopfunction: $loopfunc"
-    }
-  }
-  if ($client->{killme}) { $self->deleteclient($client); return }
-
-  # WRITE
-  if ($client->{outputmode}) {
-    my @ready = $client->{selector}->can_write(0);
-    my $canwrite=0;
-    foreach my $handle (@ready) {
-      if ($handle == $sock) {
-        $canwrite=1; last
-      }
-    }
-    if ($canwrite) { 
-      $client->{last}=$ctm;
-      if ($client->{outputpointer} >= $client->{outputlength}) {
-        # we're done
-        if ($client->{killafteroutput} || ($self->{killhttp} && $client->{httpmode})) {
-          $self->deleteclient($client); return
-        }
-        $client->{outputmode}=0;
-      }
-      if ($client->{outputmode}) {
-        my $sz=32768;
-        if ($client->{outputpointer}+$sz > $client->{outputlength}) {
-          $sz=$client->{outputlength}-$client->{outputpointer}      
-        }
-        $self->outsock($client,substr($client->{outputbuffer},$client->{outputpointer},$sz));
-        $client->{outputpointer}+=$sz
-      }
-    } elsif ($client->{httpmode}) {
-      # HTTP only needs to output at this stage
-      return
-    }
-  }
-  if (!$client->{outputmode}) {
-    if ($client->{killme} || $client->{killafteroutput}) {
-      $self->deleteclient($client); return
-    }
-    if ($client->{signalws}) {
-      $client->{signalws}=0;
-      &$func($client,'handshake','WebSockets v'.$client->{wsversion})
-    }
-  }
-
-  # READ
-  my @ready = $client->{selector}->can_read(0);
-  my $canread=0;
-  foreach my $handle (@ready) {
-    if ($handle == $sock) {
-      $canread=1; last     
-    }
-  }
-  my $inbuf="";
-  if ($canread) {
-    if ($self->{ssl}) {
-      sysread($sock,$inbuf,32768)
-    } else {
-      recv($sock,$inbuf,$self->{buffersize},0);
-    }
-    if ($inbuf eq "") {
-      if (($! != EAGAIN) && ($! != EBUSY) && ($! != 10035)) { 
-        # 10035 = WSAEWOULDBLOCK (Windows sucking non-blocking sockets)
-        if ($!) {
-          if ($self->{verbose}) {
-            my $err=0+$!;
-            print STDOUT prtm(),"ERROR $client->{ip}\:$client->{port} [$err] $!\n";
-            $client->{dontsend}=1;
-            &$func($client,'error',$err)
-          }
-          $self->deleteclient($client); return
-        }  
-      }
-    }
-  }  
-  if ($inbuf ne "") {
-    my $len=length($inbuf);
-    &$func($client,'received',$len); $client->{bytesreceived}+=$len;
-    if ($self->{debug}) {
-      print STDOUT "INBUF: '$inbuf' ($len)\n";
-    }
-    if ($client->{init}) {
-      if (ord(substr($inbuf,0,1))==255) {
-        if ($self->{websocketmode}) {
-          print STDOUT prtm(),"ERROR $client->{ip}\:$client->{port} [TELNET = NO WEBSOCKET CLIENT]\n";
-          $self->outsock($client,"HTTP/1.1 400 BAD REQUEST\r\n\r\n");
-          &$func($client,'error',"400 Bad Request");
-          $self->deleteclient($client); return
-        }
-        $client->{telnet}=1;
-        my $func=$self->{clienthandle};
-        &$func($client,'telnet');
-        # negate Telnet ident string
-        $inbuf="";
-        # Output human message
-        $client->{keepalive}=1;
-        $client->{init}=0;
-        return
-      } elsif ($inbuf =~ /^GET ([^\s]+) HTTP\/([0-1.]+)/i) {
-        if ($self->{verboseheader}) { print STDOUT "GET $1 $2\n" }
-        my $getstr=$1;
-        $client->{httpmode}=1;
-        $client->{httpreadheader}=1;
-        $client->{httpheader}{version}=$2;
-        $client->{httpheader}{method}='get';
-        my ($uri,$cgi) = split(/\?/,$getstr);
-        $client->{httpheader}{uri}=$uri;
-        $client->{httpheader}{getdata}=$cgi;
-      } elsif ($inbuf =~ /^POST ([^\s]+) HTTP\/([0-1.]+)/i) {
-        if ($self->{verboseheader}) { print STDOUT "POST $1 $2\n" }
-        $client->{httpmode}=1;
-        $client->{httpreadheader}=1;
-        $client->{httpheader}{uri}=$1;
-        $client->{httpheader}{version}=$2;
-        $client->{httpheader}{method}='post';
-      } elsif ($inbuf =~ /^SOURCE (\/[^\s]+) ICE\/([0-9.]+)/i) {
-        $client->{icecast}=1;
-        $client->{httpreadheader}=1;
-        $client->{mountpoint}=$1;
-        $client->{iceversion}=$2
-      } elsif ($self->{websocketmode}) {
-        print STDOUT prtm(),"ERROR $client->{ip}\:$client->{port} [RAW = NO WEBSOCKET CLIENT]\n";
-        $self->outsock($client,"HTTP/1.1 400 BAD REQUEST\r\n\r\n");
-        &$func($client,'error',400);
-        $self->deleteclient($client); return
-      } else {
-        &$func($client,'error',405); $self->deleteclient($client); return
-      }
-      $client->{init}=0;
-    }
-    $client->{last}=$ctm;
-    if ($client->{websockets}) {
-      $self->wsinput($client,$inbuf);
-    } else {
-      # print "* PROCESS ".length($inbuf)." *\n";
-      if (!$client->{httpmode} && !$client->{telnet} && !$self->{linemode}) {
-        &$func($client,'input',$inbuf); return
-      }
-      if ($client->{httpreadheader}) {
-        my @hdat=split(/\r\n/,$inbuf,-1); my $cnt=0;
-        foreach my $hline (@hdat) {
-          $cnt++;
-          if ($hline eq "") {
-            if ($self->{verboseheader}) {
-              print STDOUT "[HEADER END]\n"
-            }
-            $client->{httpreadheader}=0;
-            $self->httphandshake($client);
-            if ($client->{killme}) { $self->deleteclient($client); return }
-            if ($client->{websockets}) { return }
-            if ($client->{httpheader}{method} eq 'post') {
-              # post data from now on!
-              $client->{readpostdata}=1;
-              $client->{postdatalength}=$client->{httpheader}{'content-length'} || 0;
-              $client->{postdata}=join("\r\n",@hdat[$cnt..$#hdat]);
-              $client->{postdatalength}-=length($client->{postdata});
-              if ($client->{postdatalength} < 0) {
-                # http post exploits
-                $client->{postdata}=substr($client->{postdata},0,$client->{postdatalength});
-                $client->{postdatalength}=0
-              }
-              if ($client->{postdatalength} == 0) {
-                $client->{readpostdata}=0;
-                  #foreach my $k (sort keys %{$client->{httpheader}}) {
-                  #  print "$k => $client->{httpheader}{$k}\n"
-                  #}
-                $client->{post}=gpost::init($client->{httpheader}{'content-type'},$client->{postdata});
-                &$func($client,"ready",'post'); 
-              }
-            } else {
-              $client->{post}=gpost::init('get',$client->{httpheader}{getdata});
-              &$func($client,"ready",'get')
-            }
-            last # prevent exploits, negate extra data
-          } else {
-            my ($key,$val) = split(/: /,$hline,2);
-            if ((defined $key) && ($key ne "")) {
-              if (!defined $val) { $val="" }
-              else {
-                $val =~ s/^[\s]+//; $val =~ s/[\s]+$//;
-              }
-              $client->{httpheader}{lc($key)}=$val;
-              if ($self->{verboseheader}) {
-                print STDOUT "[HEADER] '$key' => '$val'\n"
-              }
-            }
-          }
-        }
-      } elsif ($client->{readpostdata}) {
-        $client->{postdata}.=$inbuf;
-        $client->{postdatalength}-=length($inbuf);
-        if ($client->{postdatalength} < 0) {
-          # http post exploits
-          $client->{postdata}=substr($client->{postdata},0,$client->{postdatalength});
-          $client->{postdatalength}=0
-        }
-        if ($client->{postdatalength} == 0) {
-          $client->{readpostdata}=0;
-          $client->{post}=gpost::init($client->{httpheader}{'content-type'},$client->{postdata});
-          &$func($client,"ready",'post');
-        }
-      }
-      if ($client->{killme}) { $self->deleteclient($client); return }
-      if (!$client->{readpostdata} && !$client->{httpmode} && !$client->{websockets}) {
-        my @lines = split(/\n/,$inbuf);
-        foreach my $line (@lines) {
-          $line =~ s/\r//g;
-          &$func($client,'input',$line);
-          if ($client->{killme}) { $self->deleteclient($client); return }
-        }
-      }  
-    }
-  } elsif ($self->{idletimeout} && ($ctm-$client->{last}>=$self->{server}{clienttimeout})) { 
-    $self->outsock($client,"HTTP/1.1 408 REQUEST TIMEOUT\r\n\r\n");
-    &$func($client,'error',"408 Request Timeout");
-    $self->deleteclient($client); return
-  } elsif ($self->{server}{clienttimeout} && (!$client->{keepalive} && (gettimeofday()-$client->{last}>=$self->{server}{clienttimeout}))) {
-    $self->outsock($client,"HTTP/1.1 408 REQUEST TIMEOUT\r\n\r\n");
-    &$func($client,'error',"408 Request Timeout");
-    $self->deleteclient($client); return
-  } elsif ($client->{websockets}) {
-    if ($client->{pingtime}) {
-      my $delta=0;
-      if ($client->{pingsent}) {
-        $delta=$ctm-$client->{pingsent};
-        if ($delta>$client->{pingtimeout}) {
-          if ($client->{killafteroutput}) {
-            $self->deleteclient($client); return
-          }
-          # ping timeout
-          wsmessage($client,"2 PING TimeOut","close");
-          print STDOUT prtm(),">! PING TIMEOUT $client->{ip}\:$client->{port}\n";
-          $client->{killafteroutput}=1;
-          return
-        }
-      }
-      $delta=$ctm-$client->{lastping};
-      if ($delta>$client->{pingtime}) {
-        # time to ping
-        my $pingmsg='eureka'.int(rand(1000000)+100000);
-        $client->{pings}{$pingmsg}=1;
-        wsmessage($client,$pingmsg,'ping');
-        if ($client->{verbosepingpong}) {
-          print STDOUT prtm(),"> PING $client->{ip} $client->{port} $pingmsg\n"
-        }
-        $client->{pingsent}=$ctm+$client->{pingtime};
-        $client->{lastping}=$ctm
-      }
-    }
-  }
-  # I love it when a plan comes together;)
 }
 
 sub decode_websocket {
@@ -967,20 +761,586 @@ sub decode_websocket {
   return @k
 }
 
+################################################################################
+
+sub outsock {
+  my ($self,$client,$data) = @_;
+  if (ref($client) !~ /^gserv\:\:client/) { 
+    error("Gserv.OutSock: Client Design error, use gserv::client class input!");
+    return 
+  }
+  return $client->outsock($data)
+}
+
+sub out {
+  my ($client,$data) = @_;
+  if (ref($client) !~ /^gserv\:\:client/) { 
+    error("Gserv.Out: Design error, use gserv::client class input!");
+    return 
+  }
+  return $client->out($data)
+}
+
+sub burst {
+  # burst some output
+  my ($client,$data,$killafteroutput) = @_;
+  if (ref($client) !~ /^gserv\:\:client/) { 
+    error("Gserv.Burst: Design error, use gserv::client class input!");
+    return 
+  }
+  return $client->burst($data,$killafteroutput)
+}
+
+################################################################################
+
+use threads;
+use threads::shared;
+use gtfio;
+use POSIX qw(:sys_wait_h :errno_h mktime);
+my %threaded :shared = ();
+my %progress :shared = ();
+
+sub burst_to_client {
+  my ($id,$client)=@_;
+  my $sz=32768<<2; # 128 Kb Packages
+  if (ref($client->{burstdata}) eq 'SCALAR') {
+    while ($client->{burstpointer} < $client->{burstlength}) {
+      if ($client->{burstpointer}+$sz > $client->{burstlength}) { $sz=$client->{burstlength}-$client->{burstpointer} }
+      if ($client->{burstpointer}>=0) {
+        $client->outsock(substr(${$client->{burstdata}},$client->{burstpointer},$sz));
+      }
+      $client->{burstpointer}+=$sz;
+      lock(%progress);
+      $progress{$id} = $client->{burstpointer};
+    }
+  }
+  elsif($client->{burstfile}) {
+    my $f=gfio::open($client->{burstfile},'r');
+    while ($client->{burstpointer} < $client->{burstlength}) {
+      if ($client->{burstpointer}+$sz > $client->{burstlength}) { $sz=$client->{burstlength}-$client->{burstpointer} }
+      $f->seek($client->{burstpointer});
+      my $rd=$f->read($sz,1); if ($client->{bursthead}) { $rd=$client->{bursthead}.$rd; delete $client->{bursthead}; }
+      $client->outsock($rd);
+      $client->{burstpointer}+=$sz;
+      lock(%progress);
+      $progress{$id} = $client->{burstpointer};
+    }
+    $f->close();
+  }
+  lock(%threaded);
+  $threaded{$id}++;
+}
+
+sub send_to_client {
+  my ($id,$client)=@_;
+  my $sz=32768<<3; # 256 Kb
+  while ($client->{outputpointer} < $client->{outputlength}) {
+    if ($client->{outputpointer}+$sz > $client->{outputlength}) { $sz=$client->{outputlength}-$client->{outputpointer} }
+    if ($client->{outputpointer}>=0) {
+      $client->outsock(substr($client->{outputbuffer},$client->{outputpointer},$sz));
+    }
+    $client->{outputpointer}+=$sz;
+  }
+}
+
+sub handleclient {
+    my ($self) = @_;
+    my $client = $self->{clients}[$self->{current}];
+    my $func = $self->{clienthandle};
+    my $ctm = gettimeofday();
+
+    if (!defined $client) {
+        $self->log("ERROR: No client found at index $self->{current}\n");
+        $self->{deleteflag} = 1;
+        return;
+    }
+
+    if ($client->{closed} || $client->{killme}) {
+        $self->deleteclient($client);
+        return;
+    }
+
+    if ($client->{sslforward}) {
+        my $forw = "[$client->{ip}:$client->{port}][HTTP_FORWARD " . $self->httpforward_tohttps($client) . "]";
+        if (ref($func) eq 'CODE') {
+            &$func($client, 'forward', $forw);
+        }
+        delete $client->{sslforward};
+        return;
+    }
+
+    my $sock = $client->{socket};
+    if (!$sock) {
+        $self->deleteclient($client);
+        return;
+    }
+
+    $self->{activeclient} = $client;
+
+    if ($self->{timeout} && $client->{init} && $client->{httpreadheader} && ($ctm - $client->{start} > $self->{timeout})) {
+        $self->outsock($client, "HTTP/1.1 408 REQUEST TIMEOUT\r\n\r\n");
+        if (ref($func) eq 'CODE') {
+            &$func($client, 'error', "408 Request Timeout");
+        }
+        $self->deleteclient($client);
+        return;
+    }
+
+    if (defined $self->{clientloop} && ref($self->{clientloop}) eq 'CODE') {
+        my $loopfunc = $self->{clientloop};
+        &$loopfunc($client, 'loop');
+        if ($client->{killme}) {
+            $self->deleteclient($client);
+            return;
+        }
+    } elsif (defined $self->{clientloop}) {
+        error "Invalid loopfunction: $self->{clientloop}";
+    }
+
+    # Non-threaded file burst
+    if ($client->{burstmode}) {
+        my $sz = 32768 << 3; # 256 KB-blokken, zoals outputmode
+        if ($client->{burstfile}) {
+            my $f = gfio::open($client->{burstfile}, 'r');
+            if (!$f) {
+                $client->outsock("HTTP/1.1 500 INTERNAL SERVER ERROR\r\n\r\n");
+                $client->{killme} = 1;
+                return;
+            }
+            my $canwrite = 0;
+            foreach my $handle ($client->{selector}->can_write(0.5)) { # 500ms timeout
+                if ($handle == $sock) {
+                    $canwrite++;
+                    last;
+                }
+            }
+            if ($canwrite) {
+                $client->{last} = $ctm;
+                if ($client->{burstpointer} < $client->{burstlength}) {
+                    if ($client->{burstpointer} + $sz > $client->{burstlength}) {
+                        $sz = $client->{burstlength} - $client->{burstpointer};
+                    }
+                    if (!IO::Socket::connected($sock)) {
+                        $f->close();
+                        $client->{killme} = 1;
+                        return;
+                    }
+                    $f->seek($client->{burstpointer});
+                    my $rd = $f->read($sz, 1);
+                    if ($client->{bursthead}) {
+                        $rd = $client->{bursthead} . $rd;
+                        delete $client->{bursthead};
+                    }
+                    $client->outsock($rd);
+                    if ($client->{killme}) {
+                        $f->close();
+                        return;
+                    }
+                    $client->{burstpointer} += $sz;
+                    $client->{lastprogress} = $client->{burstpointer};
+                    if (ref($func) eq 'CODE') {
+                        my $speed = 0;
+                        my $delta = $ctm - $client->{last};
+                        if ($delta > 0) {
+                            $speed = int(10 * (int($client->{burstpointer} / $delta) / 1024)) / 10;
+                        }
+                        &$func($client, "progress", "$speed Kbs, " . (int((1000 / $client->{burstlength}) * $client->{burstpointer}) / 10) . "%");
+                    }
+                }
+                if ($client->{burstpointer} >= $client->{burstlength}) {
+                    $f->close();
+                    $client->{burstmode} = 0;
+                    if ($client->{killafteroutput}) {
+                        $client->{killme} = 1;
+                    }
+                    if (ref($func) eq 'CODE') {
+                        &$func($client, "bursted", $client->{burstlength});
+                    }
+                }
+            }
+            $f->close() if !$client->{burstmode};
+            return;
+        } elsif (ref($client->{burstdata}) eq 'SCALAR') {
+            my $canwrite = 0;
+            foreach my $handle ($client->{selector}->can_write(0.5)) { # 500ms timeout
+                if ($handle == $sock) {
+                    $canwrite++;
+                    last;
+                }
+            }
+            if ($canwrite) {
+                $client->{last} = $ctm;
+                if ($client->{burstpointer} < $client->{burstlength}) {
+                    if ($client->{burstpointer} + $sz > $client->{burstlength}) {
+                        $sz = $client->{burstlength} - $client->{burstpointer};
+                    }
+                    if (!IO::Socket::connected($sock)) {
+                        $client->{killme} = 1;
+                        return;
+                    }
+                    $client->outsock(substr(${$client->{burstdata}}, $client->{burstpointer}, $sz));
+                    if ($client->{killme}) {
+                        return;
+                    }
+                    $client->{burstpointer} += $sz;
+                    $client->{lastprogress} = $client->{burstpointer};
+                    if (ref($func) eq 'CODE') {
+                        my $speed = 0;
+                        my $delta = $ctm - $client->{last};
+                        if ($delta > 0) {
+                            $speed = int(10 * (int($client->{burstpointer} / $delta) / 1024)) / 10;
+                        }
+                        &$func($client, "progress", "$speed Kbs, " . (int((1000 / $client->{burstlength}) * $client->{burstpointer}) / 10) . "%");
+                    }
+                }
+                if ($client->{burstpointer} >= $client->{burstlength}) {
+                    $client->{burstmode} = 0;
+                    if ($client->{killafteroutput}) {
+                        $client->{killme} = 1;
+                    }
+                    if (ref($func) eq 'CODE') {
+                        &$func($client, "bursted", $client->{burstlength});
+                    }
+                }
+            }
+            return;
+        }
+    }
+
+    # Bestaande output- en leeslogica
+    if ($client->{outputmode}) {
+        my $canwrite = 0;
+        foreach my $handle ($client->{selector}->can_write(0.5)) { # 500ms timeout
+            if ($handle == $sock) {
+                $canwrite++;
+                last;
+            }
+        }
+        if ($canwrite) {
+            $client->{last} = $ctm;
+            for my $i (0..8) { # 2 Mb
+                if ($client->{outputpointer} >= $client->{outputlength}) {
+                    $client->{outputmode} = 0;
+                    if ($client->{killafteroutput} || ($self->{killhttp} && $client->{httpmode})) {
+                        if (ref($func) eq 'CODE') {
+                            &$func($client, "donesend", $client->{outputlength});
+                        }
+                        $client->{delete} = 1;
+                        return;
+                    }
+                }
+                if ($client->{outputmode}) {
+                    my $sz = 32768 << 3; # 256 Kb
+                    if ($client->{outputpointer} + $sz > $client->{outputlength}) {
+                        $sz = $client->{outputlength} - $client->{outputpointer};
+                    }
+                    $self->outsock($client, substr($client->{outputbuffer}, $client->{outputpointer}, $sz));
+                    if ($client->{killme}) {
+                        return;
+                    }
+                    $client->{outputpointer} += $sz;
+                }
+            }
+        } elsif ($client->{httpmode}) {
+            return;
+        }
+    } else {
+        if ($client->{killafteroutput}) {
+            $client->{delete} = 1;
+            return;
+        }
+        if ($client->{signalws}) {
+            $client->{signalws} = 0;
+            if (ref($func) eq 'CODE') {
+                &$func($client, 'handshake', 'WebSockets v' . $client->{wsversion});
+            }
+        }
+    }
+
+    # READ
+    my $inbuf = "";
+    my @ready = $client->{selector}->can_read(0);
+    my $canread = 0;
+    foreach my $handle (@ready) {
+        if ($handle == $sock) {
+            $canread = 1;
+            last;
+        }
+    }
+
+    if ($canread) {
+        for my $i (1..32) { # 2 Mb
+            my $rdbuf = "";
+            if ($self->{ssl}) {
+                sysread($sock, $rdbuf, 32768); # 32 Kb
+            } else {
+                recv($sock, $rdbuf, $self->{buffersize}, 0);
+            }
+            if ($rdbuf eq "") {
+                if (($! != POSIX::EAGAIN) && ($! != POSIX::EBUSY) && ($! != POSIX::EWOULDBLOCK) && ($! != 10035)) {
+                    if ($!) {
+                        my $err = 0 + $!;
+                        $self->log("READ ERROR $client->{ip}:$client->{port} [$err] $!");
+                        $client->{dontsend} = 1;
+                        if (ref($func) eq 'CODE') {
+                            &$func($client, 'error', $err);
+                        }
+                        $self->deleteclient($client);
+                        return;
+                    }
+                }
+                last;
+            } else {
+                $inbuf .= $rdbuf;
+            }
+        }
+    }
+
+    if ($inbuf ne "") {
+        my $len = length($inbuf);
+        if (ref($func) eq 'CODE') {
+            &$func($client, 'received', $len);
+        }
+        $client->{bytesreceived} += $len;
+        $self->log("INBUF: '$inbuf' ($len)\n") if ($self->{debug});
+
+        if ($client->{init}) {
+            if (ord(substr($inbuf, 0, 1)) == 255) {
+                if ($self->{websocketmode}) {
+                    $self->log("ERROR $client->{ip}:$client->{port} [TELNET = NO WEBSOCKET CLIENT]");
+                    $self->outsock($client, "HTTP/1.1 400 BAD REQUEST\r\n\r\n");
+                    if (ref($func) eq 'CODE') {
+                        &$func($client, 'error', "400 Bad Request");
+                    }
+                    $self->deleteclient($client);
+                    return;
+                }
+                $client->{telnet} = 1;
+                if (ref($func) eq 'CODE') {
+                    &$func($client, 'telnet');
+                }
+                $inbuf = "";
+                $client->{keepalive} = 1;
+                $client->{init} = 0;
+                return;
+            } elsif ($inbuf =~ /^GET ([^\s]+) HTTP\/([0-1.]+)/i) {
+                if ($self->{verboseheader}) {
+                    $self->log("GET $1 $2\n");
+                }
+                my $getstr = $1;
+                $client->{httpmode} = 1;
+                $client->{httpreadheader} = 1;
+                $client->{httpheader}{version} = $2;
+                $client->{httpheader}{method} = 'get';
+                my ($uri, $cgi) = split(/\?/, $getstr);
+                $client->{httpheader}{uri} = $uri;
+                $client->{httpheader}{getdata} = $cgi;
+            } elsif ($inbuf =~ /^POST ([^\s]+) HTTP\/([0-1.]+)/i) {
+                if ($self->{verboseheader}) {
+                    $self->log("POST $1 $2\n");
+                }
+                $client->{httpmode} = 1;
+                $client->{httpreadheader} = 1;
+                $client->{httpheader}{uri} = $1;
+                $client->{httpheader}{version} = $2;
+                $client->{httpheader}{method} = 'post';
+            } elsif ($inbuf =~ /^SOURCE (\/[^\s]+) ICE\/([0-9.]+)/i) {
+                $client->{icecast} = 1;
+                $client->{httpreadheader} = 1;
+                $client->{mountpoint} = $1;
+                $client->{iceversion} = $2;
+            } elsif ($self->{websocketmode}) {
+                $self->log("ERROR $client->{ip}:$client->{port} [RAW = NO WEBSOCKET CLIENT]");
+                $self->outsock($client, "HTTP/1.1 400 BAD REQUEST\r\n\r\n");
+                if (ref($func) eq 'CODE') {
+                    &$func($client, 'error', 400);
+                }
+                $self->deleteclient($client);
+                return;
+            } else {
+                if (ref($func) eq 'CODE') {
+                    &$func($client, 'error', 405);
+                }
+                $self->deleteclient($client);
+                return;
+            }
+            $client->{init} = 0;
+        }
+
+        $client->{last} = $ctm;
+
+        if ($client->{websockets}) {
+            $self->wsinput($client, $inbuf);
+        } else {
+            if (!$client->{httpmode} && !$client->{telnet} && !$self->{linemode}) {
+                if (ref($func) eq 'CODE') {
+                    &$func($client, 'input', $inbuf);
+                }
+                return;
+            }
+            if ($client->{httpreadheader}) {
+                my @hdat = split(/\r\n/, $inbuf, -1);
+                my $cnt = 0;
+                foreach my $hline (@hdat) {
+                    $cnt++;
+                    if ($hline eq "") {
+                        if ($self->{verboseheader}) {
+                            $self->log("HEADER END]\n");
+                        }
+                        $client->{httpreadheader} = 0;
+                        $self->httphandshake($client);
+                        if ($client->{killme}) {
+                            $self->deleteclient($client);
+                            return;
+                        }
+                        if ($client->{websockets}) {
+                            return;
+                        }
+                        if ($client->{httpheader}{method} eq 'post') {
+                            $client->{readpostdata} = 1;
+                            $client->{postdatalength} = $client->{httpheader}{'content-length'} || 0;
+                            $client->{postdata} = join("\r\n", @hdat[$cnt..$#hdat]);
+                            $client->{postdatalength} -= length($client->{postdata});
+                            if ($client->{postdatalength} < 0) {
+                                $client->{postdata} = substr($client->{postdata}, 0, $client->{postdatalength});
+                                $client->{postdatalength} = 0;
+                            }
+                            if ($client->{postdatalength} == 0) {
+                                $client->{readpostdata} = 0;
+                                $client->{post} = gpost::init($client->{httpheader}{'content-type'}, $client->{postdata});
+                                if (ref($func) eq 'CODE') {
+                                    &$func($client, "ready", 'post');
+                                }
+                            }
+                        } else {
+                            $client->{post} = gpost::init('get', $client->{httpheader}{getdata});
+                            if (ref($func) eq 'CODE') {
+                                &$func($client, "ready", 'get');
+                            }
+                        }
+                        last;
+                    } else {
+                        my ($key, $val) = split(/: /, $hline, 2);
+                        if ((defined $key) && ($key ne "")) {
+                            if (!defined $val) {
+                                $val = "";
+                            } else {
+                                $val =~ s/^[\s]+//;
+                                $val =~ s/[\s]+$//;
+                            }
+                            $client->{httpheader}{lc($key)} = $val;
+                            if ($self->{verboseheader}) {
+                                $self->log("[HEADER] '$key' => '$val'\n");
+                            }
+                        }
+                    }
+                }
+            } elsif ($client->{readpostdata}) {
+                $client->{postdata} .= $inbuf;
+                $client->{postdatalength} -= length($inbuf);
+                if ($client->{postdatalength} < 0) {
+                    $client->{postdata} = substr($client->{postdata}, 0, $client->{postdatalength});
+                    $client->{postdatalength} = 0;
+                }
+                if ($client->{postdatalength} == 0) {
+                    $client->{readpostdata} = 0;
+                    $client->{post} = gpost::init($client->{httpheader}{'content-type'}, $client->{postdata});
+                    if (ref($func) eq 'CODE') {
+                        &$func($client, "ready", 'post');
+                    }
+                }
+            }
+            if ($client->{killme}) {
+                $self->deleteclient($client);
+                return;
+            }
+            if (!$client->{readpostdata} && !$client->{httpmode} && !$client->{websockets}) {
+                my @lines = split(/\n/, $inbuf);
+                foreach my $line (@lines) {
+                    $line =~ s/\r//g;
+                    if (ref($func) eq 'CODE') {
+                        &$func($client, 'input', $line);
+                    }
+                    if ($client->{killme}) {
+                        $self->deleteclient($client);
+                        return;
+                    }
+                }
+            }
+        }
+    } elsif (
+        ($self->{idletimeout} && ($ctm - $client->{last} >= $self->{server}{clienttimeout})) ||
+        ($self->{server}{clienttimeout} && (!$client->{keepalive} && (gettimeofday() - $client->{last} >= $self->{server}{clienttimeout})))
+    ) {
+        $client->outsock("HTTP/1.1 408 REQUEST TIMEOUT\r\n\r\n");
+        if (ref($func) eq 'CODE') {
+            &$func($client, 'error', "408 Request Timeout");
+        }
+        $self->deleteclient($client);
+        return;
+    } elsif ($client->{websockets}) {
+        if ($client->{pingtime}) {
+            my $delta = 0;
+            if ($client->{pingsent}) {
+                $delta = $ctm - $client->{pingsent};
+                if ($delta > $client->{pingtimeout}) {
+                    if ($client->{killafteroutput}) {
+                        $self->deleteclient($client);
+                        return;
+                    }
+                    wsmessage($client, "2 PING TimeOut", "close");
+                    $self->log(">! PING TIMEOUT $client->{ip}:$client->{port}");
+                    $client->{killafteroutput} = 1;
+                    return;
+                }
+            }
+            $delta = $ctm - $client->{lastping};
+            if ($delta > $client->{pingtime}) {
+                my $pingmsg = 'eureka' . int(rand(1000000) + 100000);
+                $client->{pings}{$pingmsg} = 1;
+                wsmessage($client, $pingmsg, 'ping');
+                if ($client->{verbosepingpong}) {
+                    $self->log("> PING $client->{ip} $client->{port} $pingmsg");
+                }
+                $client->{pingsent} = $ctm + $client->{pingtime};
+                $client->{lastping} = $ctm;
+            }
+        }
+    }
+}
+
+################################################################################
+
 sub httphandshake {
   my ($self,$client) = @_;
-  my @out=();
+  #my @out=();
   my $sock=$client->{socket};
   if (!$sock) { return }
   my $func=$self->{clienthandle};
   my $date=time2str();
   my $caller=$self->{caller};
+  # SSKE Handshake
+  if ($client->{sske}) {
+    $client->httpversion("1.1");
+    if (!$self->checksske($client,$client->{sskemode})) {
+      $self->log("[SSKE 460 Keys Expected]\n");
+      return $client->httpcode(460)->httprespond(1)
+    }
+    if (!$self->checksske($client,$client->{sskemode}+1)) {
+      $self->log("[SSKE 461 Invalid Keys]\n");
+      return $client->httpcode(461)->httprespond(1)
+    }
+    $client->httpcode(100)
+    #push @out,"HTTP/1.1 100 Continue"
+  }
+  # ICECAST Handshake
   if (!$client->{icecast} && ($client->{httpheader}{'ice-name'} || $client->{httpheader}{'ice-description'} || $client->{httpheader}{'ice-url'})) {
     $client->{icecast}=2;
     $client->{iceversion}=$client->{httpheader}{version};
     $client->{mountpoint}=$client->{httpheader}{uri}
-  } elsif ((defined $client->{httpheader}{upgrade}) && ($client->{httpheader}{upgrade} =~ /websocket/i)) {
-#  print "#[-1]#\r\n";
+  }
+  # Websocket Handshake
+  elsif ((defined $client->{httpheader}{upgrade}) && ($client->{httpheader}{upgrade} =~ /websocket/i)) {
     $client->{wsreadheader}=1;
     $client->{wsheadermode}=0;
     $client->{wsdata}="";
@@ -988,60 +1348,221 @@ sub httphandshake {
     # WebSockets connection, so do handshake!
     # VERSION HyBi 00
     if ($client->{httpheader}{'sec-websocket-key1'}) {
-
       # hybi00 is vulnerable!!!
-      print STDOUT "[WEBSOCKET HyBi00]\n";
-      out($client,"HTTP/1.1 400 Bad Request\r\nSec-WebSocket-Version: $client->{wsversion}\r\n\r\n");
-      $client->{killafteroutput}=1;
-      return;
+      $self->log("[WEBSOCKET HyBi00]\n");
+      return $client->httpversion("1.1")->httpcode(400)->httphead("Sec-WebSocket-Version: $client->{wsversion}")->httprespond(1);
     }
     # VERSION HyBi 06
     $client->{websockets}=1;
     $client->{httpmode}=0;
     $client->{websocketprotocol}='hybi06';
-    my $handshake=$client->{httpheader}{'sec-websocket-key'};    
-    $handshake.="258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
-    $handshake = sha1($handshake);
-    $handshake = encode_base64($handshake);
-    push @out,"HTTP/1.1 101 Switching Protocols";
-    push @out,"Upgrade: WebSocket";
-    push @out,"Connection: Upgrade";
-    push @out,"Sec-WebSocket-Accept: ".$handshake;
+    $client->httpversion("1.1")->httpcode(101)->httphead(
+      "Upgrade: WebSocket",
+      "Connection: Upgrade",
+      "Sec-WebSocket-Accept: ".encode_base64(sha1($client->{httpheader}{'sec-websocket-key'}."258EAFA5-E914-47DA-95CA-C5AB0DC85B11"))
+    );
     $client->{signalws}=1
-  } elsif ($self->{websocketmode}) {
-    out($client,"HTTP/1.1 426 Upgrade Required\r\nSec-WebSocket-Version: 13\r\nContent-type: text/html\r\n\r\nYou need to connect with the WebSocket protocol on this server.");
+  }
+  # Websocket Upgrade Error
+  elsif ($self->{websocketmode}) {
+    #out($client,"HTTP/1.1 426 Upgrade Required\r\nSec-WebSocket-Version: 13\r\nContent-type: text/html\r\n\r\nYou need to connect with the WebSocket protocol on this server.");
     &$func($client,'error',"426 Upgrade Required");
-    $self->deleteclient($client); return
+    return $client->httpversion("1.1")->httpcode(426)
+      ->httphead("Sec-WebSocket-Version: 13")
+      ->contentbody("You need to connect with the WebSocket protocol on this server.")
+      ->httprespond(1);
+    #$self->deleteclient($client); return
   }
+  # ICECAST 1 Handshake
   if ($client->{icecast}==1) {
-    push @out,"HTTP/1.0 200 OK";
-    push @out,"Server: Icecast 2.5.0";
-    push @out,"Connection: Close";
-    push @out,"Allow: GET, SOURCE";
-    push @out,"Date: $date";
-    push @out,"Cache-Control: no-cache";
-    push @out,"Pragma: no-cache";
-    push @out,"Access-Control-Allow-Origin: *";
-  } elsif ($client->{icecast}==2) {
-    push @out,"HTTP/1.1 100 Continue";
-    push @out,"Server: Icecast 2.5.0";
-    push @out,"Connection: Close";
-    push @out,"Accept-Encoding: identity";
-    push @out,"Allow: GET, SOURCE";
-    push @out,"Date: $date";
-    push @out,"Cache-Control: no-cache";
-    push @out,"Pragma: no-cache";
-    push @out,"Access-Control-Allow-Origin: *";
+    $client->httpversion("1.0")->httpcode(200)->httphead(
+      "Server: Icecast 2.5.0",
+      "Connection: Close",
+      "Allow: GET, SOURCE",
+      "Date: $date",
+      "Cache-Control: no-cache",
+      "Pragma: no-cache",
+      "Access-Control-Allow-Origin: *"
+    );
   }
-  if ($#out >= 0) {
-    my $data=join("\r\n",@out)."\r\n\r\n";
-    out($client,$data);
+  # ICECAST 2 Handshake
+  elsif ($client->{icecast}==2) {
+    $client->httpversion("1.1")->httpcode(100)->httphead(
+      "Server: Icecast 2.5.0",
+      "Connection: Close",
+      "Accept-Encoding: identity",
+      "Allow: GET, SOURCE",
+      "Date: $date",
+      "Cache-Control: no-cache",
+      "Pragma: no-cache",
+      "Access-Control-Allow-Origin: *"
+    );
   }
+  # SSKE Handshake
+  if ($client->{sske}) {
+    if ($client->{sskemode} == 1) {
+      $client->httphead(
+        "Double-Symmetric-Key: ".octhex(scramblekey($client->{sske}{singlekey},$client->{sske}{transkey},$client->{sske}{transfunc})),
+        "Double-Symmetric-Function: ".octhex(scramblekey($client->{sske}{singlefunc},$client->{sske}{transkey},$client->{sske}{transfunc}))
+      );
+      $client->{httpreadheader}=1;
+      $client->{sskemode}=3
+    } else {
+      $client->{sske}{symkey}=scramblekey($client->{sske}{unlockedkey},$client->{sske}{transkey},$client->{sske}{transfunc});
+      $client->{sske}{symfunc}=scramblekey($client->{sske}{unlockedfunc},$client->{sske}{transkey},$client->{sske}{transfunc})
+    }
+  }
+  # Handshake Output
+  if ($client->httpcode()){ #$#out >= 0) {
+    #my $data=join("\r\n",@out)."\r\n\r\n";
+    if ($self->{verboseheader}) {
+      $self->log("[HEADER OUT]\n".join("\n",@{$client->httphead()}));
+      #print "[HEADER OUT]\n".join("\n",@out)."\n"
+    }
+    $client->httprespond();
+    #out($client,$data);
+  }
+  # Entering SSKE Mode
+  if ($client->{sskemode} > 1) { $client->{sskeactive} = 1 }
 }
 
+####### Secure Symmetric Key Exchange #############
+
+sub createkey {
+  my ($pubkey, $privkey) = Crypt::Ed25519::generate_keypair;
+  return $privkey
+}
+
+sub scramblekey {
+  # 64 bit CPU-mode only!
+  if ($cpu32) { return scramblekey32(@_) }
+  my ($shared,$private,$fkey) = @_;
+  my @plist=unpack('Q*',$private);
+  my @flist=unpack('Q*',$fkey);
+  my $key=""; my $i=0;
+  for my $c (unpack('Q*',$shared)) {
+    my $x = $c ^ $plist[$i];
+    $key.=pack('Q',(($x & ~$flist[$i]) | (~$x & $flist[$i])));
+    $i++
+  }
+  return $key
+}
+
+sub scramblekey32 {
+  # 32 bit CPU-mode only!
+  my ($shared,$private,$fkey) = @_;
+  my @plist=unpack('N*',$private);
+  my @flist=unpack('N*',$fkey);
+  my $key=""; my $i=0;
+  for my $c (unpack('N*',$shared)) {
+    my $x = $c ^ $plist[$i];
+    $key.=pack('N',(($x & ~$flist[$i]) | (~$x & $flist[$i])));
+    $i++
+  }
+  return $key
+}
+
+sub sskecrypt {
+  # EXTREME strong encoding
+  my ($self,$data,$forceencode) = @_;
+  my $decode=(substr($data,0,4) eq 'DSKE'); my $ofs=0;
+  if ($forceencode) { $decode=0 }
+  my $datalen=length($data)-8*$decode; my $orglen=$datalen;
+  if ($decode) {
+    $orglen=unpack('N',substr($data,4,4)); $ofs=8;
+    my $rest=$orglen % 64; if ($rest) { $rest=64-$rest }
+    if ($orglen+$rest != $datalen) {
+      # Found size ($len) different from actual size ($datalen)
+      return undef
+    }
+  } elsif ($datalen > 16777216) {
+    error("Domero Encoder: Datalength exceeds 16Mb.")
+  }
+  my $sha=sha512($self->{sske}{symkey});
+  my $scram; my $kscram;
+  if ($datalen > 4096) {
+    $scram=sha512($self->{sske}{symfunc});
+    if ($datalen > 262144) {
+      $kscram=sha512($sha.$scram);
+    }
+  }
+  my $dataoffset=unpack('n',substr($sha,0,2)) % $orglen;
+  if (!$decode) { $ofs+=$dataoffset }
+  # add padding to get 64 byte granularity
+  my $rest=$datalen % 64;
+  if ($rest) { $data.=chr(0)x(64-$rest); $datalen+=64-$rest }
+  my $nb = $datalen >> 6; my $out=""; my $dat;
+  my $filter = $self->{sske}{symfunc};
+  for my $b (1..$nb) {
+    if (!$decode && ($ofs+64>$datalen)) {
+      my $rest=64+$ofs-$datalen;
+      $dat=substr($data,$ofs).substr($data,0,$rest); $ofs=$rest
+    } else {
+      $dat=substr($data,$ofs,64); $ofs+=64
+    }
+    $out.=scramblekey($dat,$self->{sske}{symkey},$filter);
+    $filter=substr($filter,1).substr($filter,0,1);
+    if ($b % 64 == 0) {
+      # every 4Kb -> new filter (all used up), filter = 64 bytes * 4Kb = max 256Kb
+      if ($b % 4096 == 0) {
+        # every 256Kb -> new scram (all used up), kscram = 64 bytes * 256Kb = 16Mb
+        my @sl=unpack('N*',$kscram); my $ns=""; my $i=0;
+        for my $f (unpack('N*',$scram)) {
+          $ns.=pack('N',$f ^ $sl[$i]); $i++
+        }
+        $scram=$ns;
+        $kscram=substr($kscram,1).substr($kscram,0,1);
+      }
+      $filter=""; my $i=0;
+      my @sl=unpack('N*',$scram);
+      for my $f (unpack('N*',$self->{sske}{symfunc})) {
+        $filter.=pack('N',$f ^ $sl[$i]); $i++
+      }
+      $scram=substr($scram,1).substr($scram,0,1);
+    }
+  }
+  # add header
+  if ($decode) {
+    # delete encoded zeros padding ( = garbage) and re-adjust data for dataoffset
+    $out=substr($out,$datalen-$dataoffset).substr($out,0,$orglen-$dataoffset)
+  } else {  
+    $out='DSKE'.pack('N',$orglen).$out
+  }
+  return $out
+}
+
+sub checksske {
+  my ($self,$client,$mode) = @_;
+  if (($mode == 1) || ($mode == 2)) {
+    my $key=uc($client->{httpheader}{'symmetric-key'});
+    my $fkey=uc($client->{httpheader}{'symmetric-function'});
+    if ($mode == 1) {
+      if (!$key || !$fkey) { return 0 }
+    } else {
+      if ($key !~ /[A-F0-9]{128}/) { return 0 }
+      if ($fkey !~ /[A-F0-9]{128}/) { return 0 }
+    }
+    $client->{sske}{singlekey}=hexoct($key);
+    $client->{sske}{singlefunc}=hexoct($fkey)
+  } else {
+    my $key=uc($client->{httpheader}{'unlocked-symmetric-key'});
+    my $fkey=uc($client->{httpheader}{'unlocked-symmetric-function'});
+    if ($mode == 3) {
+      if (!$key || !$fkey) { return 0 }
+    } else {
+      if ($key !~ /[A-F0-9]{128}/) { return 0 }
+      if ($fkey !~ /[A-F0-9]{128}/) { return 0 }
+    }
+    $client->{sske}{unlockedkey}=hexoct($key);
+    $client->{sske}{unlockedfunc}=hexoct($fkey)
+  }
+  return 1
+}
+
+################################################################################
+
 sub httpresponse {
-  my ($code) = @_;
-  my $msg="Unknown";
+  my ($code,$version) = @_; my $msg="Unknown"; if (!$version) { $version="1.1" }
   # information
   if ($code == 100) { $msg="Continue" }
   elsif ($code == 101) { $msg="Switching Protocols" }
@@ -1109,14 +1630,16 @@ sub httpresponse {
   elsif ($code == 510) { $msg="Not Extended" } # RFC 2774
   elsif ($code == 511) { $msg="Network Authentication Required" } # RFC 6585
   
-  return "HTTP/1.1 $code $msg"
+  return "HTTP/$version $code $msg"
 }
+
+################################################################################
 
 sub broadcast {
   my ($self,$message)=@_;
   foreach my $c (@{$self->{clients}}) {
     if ($c && !$c->{killme} && !$c->{closed} && !$c->{dontsend}) {
-      out($c,$message)
+      $c->out($message)
     }
   }
 }
@@ -1125,7 +1648,7 @@ sub wsbroadcast {
   my ($self,$message,$command)=@_;
   foreach my $c (@{$self->{clients}}) {
     if ($c->{websockets}) {
-      wsmessage($c,$message,$command)
+      $c->wsmessage($message,$command)
     }
   }
 }
@@ -1140,13 +1663,15 @@ sub broadcastfunc {
   }
 }
 
+################################################################################
+
 sub quit {
   my ($self,$msg)=@_;
   if (!$self->{server}{running}) { exit }
   $|=1; my $nc=$self->{numclients};
   if (!$msg) { $msg="[ no message ]" }
   if (!$nc) { $nc=0 }
-  print STDOUT prtm(),"Kill signal received!\nQuit: $msg\nKilling $nc clients .. \n";
+  $self->log(prtm(),"Kill signal received!\nQuit: $msg\nKilling $nc clients .. \n");
   $self->wsbroadcast('quit','close');
   for (my $c=0;$c<$nc;$c++) {
     $self->{clients}[$c]{killafteroutput}=1;
@@ -1154,23 +1679,24 @@ sub quit {
   for (my $c=0;$c<$nc;$c++) {
     $self->takeloop()
   }
-  print STDOUT "Done.\n"; print STDOUT prtm()."Killing myself .. ";
+  $self->log("Done.\n"); $self->log(prtm(),"Killing myself .. ");
   my $sock=$self->{server}{socket};
   if ($sock) { shutdown($sock,2); close($sock); }
   $self->{server}{running}=0;
   $self->{clients} = [];
   $self->{current} = 0;
   $self->{numclients} = 0;
-  print STDOUT "Stopped!\n"
+  $self->log("Stopped!\n")
 }
+
+################################################################################
 
 sub prtm {
   my ($s,$m,$h) = localtime;
   if (length($s)<2) { $s="0$s" }
   if (length($m)<2) { $m="0$m" }
   if (length($h)<2) { $h="0$h" }
-  print STDOUT "[$h:$m:$s] ";
-  return ""
+  return "[$h:$m:$s] "
 }
 
 sub encode_base64_char {
@@ -1219,4 +1745,252 @@ sub localip {
   return $socket->sockhost;
 }
 
+################################################################################
 # EOF gserv.pm (C) 2018 Chaosje @ Domero
+################################################################################
+
+package gserv::client;
+
+################################################################################
+
+use strict;
+use warnings; no warnings qw<uninitialized>;
+#use Socket;
+#use IO::Socket::IP -register;
+#use IO::Handle;
+#use IO::Select;
+#use IO::Socket::SSL;
+#use Time::HiRes qw(usleep gettimeofday);
+#use Digest::SHA qw(sha256 sha256_hex sha512);
+#use Digest::SHA1 qw(sha1);
+#use Digest::MD5 qw(md5);
+#use HTTP::Date;
+use gerr qw(error);
+
+sub new {
+  my ($class,$serv,$client)=@_; if (ref($serv) !~ /^gserv/) { return }
+  bless $client,$class;
+  push @{$serv->{clients}}, $client;
+  $client->{serv}=$serv;
+  $serv->{numclients}++;
+  $client->{http_response}={ version => "1.1", code => 0, head => [], body => "" };
+  if ($serv->{sske}) {
+    $client->{sske} = { transkey => gserv::createkey(), transfunc => gserv::createkey() };
+    $client->{sskemode}=1
+  }
+  if ($serv->{verbose}) {
+    $serv->log("JOIN $client->{ip}\:$client->{port} ($client->{host})")
+  }
+  if (ref($serv->{serverhandle}) eq 'CODE') { &{$serv->{serverhandle}}('connect',$client) }
+  if (ref($serv->{clienthandle}) eq 'CODE') { &{$serv->{clienthandle}}($client,'connect') }
+  return $client
+}
+
+sub delete {
+  my ($client)=@_;
+  $client->{server}->deleteclient($client);
+}
+
+################################################################################
+# OUTPUT
+
+sub wsmessage { my ($client,@msg)=@_; gserv::wsmessage($client,@msg); return $client }
+
+sub out {
+  my ($client,$data,$killafteroutput)=@_;
+  if (!defined $data) { return }
+  if (ref($data)){ $data=${$data} }
+  if ($client->{sskeactive}) { $data=gserv::sskecrypt($client,$data,1) }
+  if ($client->{outputmode}) {
+    $client->{outputbuffer}.=$data;
+    $client->{outputlength}+=length($data);
+  } else {
+    $client->{outputmode}=1;
+    $client->{outputbuffer}=$data;
+    $client->{outputlength}=length($data);
+    $client->{outputpointer}=0
+  }
+  if (defined $killafteroutput) { $client->{killafteroutput}=$killafteroutput }
+  return $client
+}
+
+sub outsock {
+    my ($client, $data) = @_;
+    if (!$client->{server}{isserver}) {
+        error "Design change version 4! \$client->outsock demands the server! Use out or burst instead";
+    }
+    my $sock = $client->{socket};
+    if (!$sock) {
+        if (ref($client->{server}{clienthandle}) eq 'CODE') {
+            $client->{server}{clienthandle}->($client, 'kill', "no socket");
+        }
+        $client->{killme} = 1;
+        return;
+    }
+    if (!IO::Socket::connected($sock)) {
+        if (ref($client->{server}{clienthandle}) eq 'CODE') {
+            $client->{server}{clienthandle}->($client, 'kill', "not connected");
+        }
+        $client->{killme} = 1;
+        return;
+    }
+    if ($client->{ssl}) {
+        my $len = length($data);
+        if ($len <= 16384) {
+            my $written;
+            while (1) {
+                $written = syswrite($sock, $data, $len);
+                if (defined $written && $written == $len) {
+                    last; # Succes
+                }
+                #$client->{server}->log("ERROR: syswrite failed for client $client->{ip}:$client->{port} [expected $len, wrote " . (defined $written ? $written : "undef") . "] $!");
+                if ($! == POSIX::EAGAIN || $! == POSIX::EWOULDBLOCK) {
+                    Time::HiRes::usleep(10000); # 10ms wachten bij EAGAIN
+                } else {
+                    $client->{killme} = 1;
+                    return; # Fatale fout
+                }
+            }
+            return;
+        }
+        my $pos = 0;
+        my $sz = 16384;
+        while ($pos < $len) {
+            if ($pos + $sz > $len) {
+                $sz = $len - $pos;
+            }
+            my $written;
+            while (1) {
+                $written = syswrite($sock, substr($data, $pos, $sz), $sz);
+                if (defined $written && $written == $sz) {
+                    last; # Succes
+                }
+                #$client->{server}->log("ERROR: syswrite failed for client $client->{ip}:$client->{port} [expected $sz, wrote " . (defined $written ? $written : "undef") . "] $!");
+                if ($! == POSIX::EAGAIN || $! == POSIX::EWOULDBLOCK) {
+                    Time::HiRes::usleep(10000); # 10ms wachten bij EAGAIN
+                } else {
+                    $client->{killme} = 1;
+                    return; # Fatale fout
+                }
+            }
+            $pos += $written;
+        }
+    } else {
+        for my $i (0..length($data)-1) {
+            my $chr = substr($data, $i, 1);
+            print $sock (ord($chr) < 256 ? $chr : HTML::Entities::encode_entities($chr));
+        }
+    }
+    my $len = length($data);
+    $client->{bytessent} += $len;
+    if (ref($client->{server}{clienthandle}) eq 'CODE') {
+        $client->{server}{clienthandle}->($client, 'sent', $len);
+    }
+    return $client;
+}
+
+sub burst {
+  # burst some output
+  my ($client,$data,$killafteroutput) = @_;
+  if (ref($data) ne "SCALAR") { error("Gserv::Client.Burst: Design error, use \\\$data for much faster comunication!") }
+  $client->{burstdata}=$data;
+  $client->{burstlength}=length(${$data});
+  $client->{burstpointer}=0;
+  if ($client->{burstlength}) { $client->{burstmode}=1 }
+  if (defined $killafteroutput) { $client->{killafteroutput}=$killafteroutput }
+  if (ref($client->{server}{clienthandle}) eq 'CODE') {
+    $client->{server}{clienthandle}->($client,'burst',"$client->{burstdata}:$client->{burstlength}:$client->{killafteroutput}:$client->{burstpointer}:".length(${$client->{burstdata}}))
+  }
+  return $client
+}
+
+sub burstfile {
+  # burst some output
+  my ($client,$head,$file,$killafteroutput,$filter) = @_;
+  if (!-f $file) { error("Gserv::Client.BurstFile: File Not Found: $file") }
+  $client->{bursthead}=$head;
+  $client->{burstfile}=$file;
+  $client->{burstfilter}=$filter;
+  $client->{burstlength}=-s $file;
+  $client->{burstpointer}=0;
+  if ($client->{burstlength}) { $client->{burstmode}=1 }
+  if (defined $killafteroutput) { $client->{killafteroutput}=$killafteroutput }
+  if (ref($client->{server}{clienthandle}) eq 'CODE') {
+    $client->{server}{clienthandle}->($client,'burst',"$client->{burstfile}:$client->{burstlength}:$client->{killafteroutput}:$client->{burstpointer}:".(-s $client->{burstfile}))
+  }
+  return $client
+}
+
+################################################################################
+# HTTP RESPONSE
+
+sub httpversion {
+  my ($client,$version)=@_;
+  if (defined $version) {
+    $client->{http_response}{version}=$version;
+    return $client
+  }
+  return $client->{http_response}{version}
+}
+
+sub httpcode {
+  my ($client,$code)=@_;
+  if (defined $code) {
+    $client->{http_response}{code}=gserv::httpresponse($code,$client->{http_response}{version});
+    return $client
+  }
+  return $client->{http_response}{code} 
+}
+
+sub httphead {
+  my ($client,@header)=@_;
+  if ($#header > -1) {
+    push @{$client->{http_response}{head}},@header;
+    return $client
+  }
+  return $client->{http_response}{head}
+}
+
+sub contenttype {
+  my ($client,$type)=@_;
+  if (defined $type) {
+    if (!defined $client->{http_response}{type}) {
+      $client->{http_response}{type}=$type;
+      $client->httphead("Content-type: $client->{http_response}{type}")
+    }
+    return $client
+  }
+  return $client->{http_response}{type}
+}
+
+sub contentbody {
+  my ($client,$body)=@_;
+  if (defined $body) {
+    $client->{http_response}{length} = length($body);
+    $client->httphead("Content-length: $client->{http_response}{length}");
+    $client->{http_response}{body} = $body;
+    return $client
+  }
+  return $client->{http_response}{body}
+}
+
+sub httpresponse {
+  my ($client)=@_;
+  if (!defined $client->{http_response}{length} && length($client->{http_response}{body})) {
+    $client->{http_response}{length} = length($client->{http_response}{body});
+    $client->httphead("Content-length: $client->{http_response}{length}");
+    if (!defined $client->{http_response}{type}) { $client->contenttype("text/html") }
+  }
+  if ($client->{http_response}{code} eq 0) { $client->httpcode(200) }
+  return $client->httpcode()."\r\n".join("\r\n",@{$client->httphead()})."\r\n\r\n".$client->contentbody();
+}
+
+sub httprespond {
+  my ($client,$killafteroutput)=@_;
+  return $client->out($client->httpresponse(),$killafteroutput)
+}
+
+
+################################################################################
+# EOF gserv::client.pm (C) 2020 OnEhIppY @ Domero
+1

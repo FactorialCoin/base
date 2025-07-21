@@ -26,7 +26,7 @@ $VERSION     = '2.1.2';
 1;
 
 sub init {
-  my ($type,$data) = @_;
+  my ($type,$data,$uri) = @_;
   my $self={}; bless $self;
   $self->{key}={};
   $self->{upload}={};
@@ -37,35 +37,58 @@ sub init {
   $self->{boundary}="";
   $self->{data}="";
   $self->{len}=0;
+  $self->{reqtype}={};
   if (defined $type) {
-    if ($type eq 'get') { $self->{type}='url' } 
-    elsif ($type =~ /application\/x-www-form-urlencoded/i) { $self->{type}='url'}
-    elsif ($type =~ /multipart\/form-data.*?boundary=\"?([^\"]+)\"?$/i) {
-      $self->{boundary}=$1; $self->{type}='mime'
+    if ($type eq 'get') { $self->{type}='url' }
+    elsif ($type =~ /^([^\/]+)\/(.+)$/) {
+      my $tp=$1; my $tv=$2;
+      $self->{reqtype}{$tp}=$tv;
+      if ($tp =~ /application/i){ $self->{type}='url' } 
+      elsif ($tp =~ /multipart/i) {
+        if ($tv =~ /form-data.*?boundary=\"?([^\"]+)\"?$/i) { $self->{boundary}=$1 }
+        $self->{type}='mime'
+      }
+      elsif ($tp =~ /^text/i) { $self->{type}='url' }
+      else {
+        $self->{type}='unknown'
+      }
     }
-    elsif ($type =~ /text\/plain/i) {
-      $self->{type}='url'
-    } else {
-      error("GPost.init: Inknown type found '$type'")
+    else {
+      $self->{error} = 1;
+      $self->{errormsg} = "GPost.init: Unknown type found '$type'";
+      return $self;  # Early return op error
     }
   }
   if (defined $data) {
     $self->{data}=$data;
   }
   if (!$self->{type}) {
-    $self->{ruri}=[split(/\//,shift(@{[split(/\?/,$ENV{REQUEST_URI})]}))];
-    if ($ENV{'REQUEST_METHOD'} =~ /get/i) {
-      $self->{data}=$ENV{'QUERY_STRING'};
-      $self->{type}='url'
-    } else {
-      read(STDIN,$self->{data},$ENV{'CONTENT_LENGTH'}) || error("Upload not completed");
-      if ($ENV{'CONTENT_TYPE'} =~ /application\/x-www-form-urlencoded/i) {
+    if ($ENV) {
+      $self->{ruri}=[split(/\//,shift(@{[split(/\?/,$uri || $ENV{REQUEST_URI})]}))];
+      if ($type || $ENV{'REQUEST_METHOD'} =~ /get/i) {
+        $self->{data}=$ENV{'QUERY_STRING'};
         $self->{type}='url'
-      } elsif ($ENV{'CONTENT_TYPE'} =~ /multipart\/form-data.*?boundary=\"?([^\"]+)\"?$/i) {
-        $self->{boundary}=$1; $self->{type}='mime'
       } else {
-        $self->{type}='url'
+        # Hier de fix: Afvangen van read-failure zonder fatal error
+        my $content_length = $ENV{'CONTENT_LENGTH'} || 0;
+        my $bytes_read = read(STDIN, $self->{data}, $content_length);
+        if ($bytes_read != $content_length) {
+          $self->{error} = 1;
+          $self->{errormsg} = "Upload not completed (read $bytes_read of $content_length bytes)";
+          return $self;  # Graceful return
+        }
+        if ($ENV{'CONTENT_TYPE'} =~ /application\/x-www-form-urlencoded/i) {
+          $self->{type}='url'
+        } elsif ($ENV{'CONTENT_TYPE'} =~ /multipart\/form-data.*?boundary=\"?([^\"]+)\"?$/i) {
+          $self->{boundary}=$1; $self->{type}='mime'
+        } else {
+          $self->{type}='url'
+        }
       }
+    }else{
+      $self->{ruri}=[];
+      $self->{data}=$data;
+      $self->{type}='url'
     }
   }
   $self->{len}=length($self->{data});

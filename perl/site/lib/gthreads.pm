@@ -6,7 +6,7 @@ package gthreads;
 #                                                                      #
 #    Gideon Multithreads                                               #
 #                                                                      #
-#    (C) 2019 Domero, Groningen, NL                                    #
+#    (C) 2016 Domero, Groningen, NL                                    #
 #    ALL RIGHTS RESERVED                                               #
 #                                                                      #
 ########################################################################
@@ -512,4 +512,4 @@ sub quitall {
   }
 }
 
-# EOF gthreads.pm (C) 2019 Chaosje, Domero
+# EOF gthreads.pm
